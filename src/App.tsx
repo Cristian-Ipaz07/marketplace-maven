@@ -15,6 +15,8 @@ import Profiles from "./pages/dashboard/Profiles";
 import Publish from "./pages/dashboard/Publish";
 import Analytics from "./pages/dashboard/Analytics";
 import Subscription from "./pages/dashboard/Subscription";
+import DailyCovers from "./pages/dashboard/DailyCovers";
+import PublishPreview from "./pages/dashboard/PublishPreview";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
