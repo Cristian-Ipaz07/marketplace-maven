@@ -144,16 +144,43 @@ export default function Publish() {
         <Card className="border-border/60">
           <CardHeader>
             <CardTitle className="font-display text-base">Categorías</CardTitle>
-            <CardDescription>Selecciona las categorías de productos a publicar</CardDescription>
+            <CardDescription>Selecciona cómo asignar categorías a cada publicación</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {categories.map((cat) => (
-                <Badge key={cat} variant={selectedCategories.includes(cat) ? "default" : "outline"} className="cursor-pointer text-sm px-3 py-1.5 transition-colors" onClick={() => toggleCategory(cat)}>
-                  {cat}
-                </Badge>
-              ))}
+          <CardContent className="space-y-4">
+            {/* Smart toggle */}
+            <div className="flex items-center justify-between p-3 rounded-lg bg-primary/5 border border-border/60">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <div>
+                  <Label htmlFor="use_product_category" className="text-sm font-medium cursor-pointer">Usar categoría del producto</Label>
+                  <p className="text-xs text-muted-foreground">Cada artículo usará su propia categoría del inventario</p>
+                </div>
+              </div>
+              <Switch id="use_product_category" checked={useProductCategory} onCheckedChange={setUseProductCategory} />
             </div>
+
+            {useProductCategory ? (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Categorías detectadas en tu inventario:</p>
+                <div className="flex flex-wrap gap-2">
+                  {productCategories.length > 0 ? productCategories.map((cat) => (
+                    <Badge key={cat} variant="secondary" className="text-sm px-3 py-1.5">
+                      {cat}
+                    </Badge>
+                  )) : (
+                    <p className="text-xs text-muted-foreground italic">No se encontraron categorías en el inventario. Importa productos primero.</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {categories.map((cat) => (
+                  <Badge key={cat} variant={selectedCategories.includes(cat) ? "default" : "outline"} className="cursor-pointer text-sm px-3 py-1.5 transition-colors" onClick={() => toggleCategory(cat)}>
+                    {cat}
+                  </Badge>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
