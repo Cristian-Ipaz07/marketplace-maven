@@ -35,7 +35,7 @@ export default function DashboardLayout() {
         </div>
         <nav className="flex-1 px-3 space-y-1">
           {navItems.map((item) => {
-            const active = pathname === item.to || (item.to !== "/dashboard" && pathname.startsWith(item.to));
+            const active = item.to === "/dashboard" ? pathname === "/dashboard" : pathname === item.to;
             return (
               <Link
                 key={item.to}
