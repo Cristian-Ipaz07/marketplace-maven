@@ -158,6 +158,7 @@ export type Database = {
           options: string[]
           quantity: number
           updated_at: string
+          use_product_category: boolean
           user_id: string
         }
         Insert: {
@@ -169,6 +170,7 @@ export type Database = {
           options?: string[]
           quantity?: number
           updated_at?: string
+          use_product_category?: boolean
           user_id: string
         }
         Update: {
@@ -180,6 +182,7 @@ export type Database = {
           options?: string[]
           quantity?: number
           updated_at?: string
+          use_product_category?: boolean
           user_id?: string
         }
         Relationships: []

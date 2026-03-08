@@ -24,6 +24,7 @@ const marketplaceOptions = [
 export default function Publish() {
   const { user } = useAuth();
   const [quantity, setQuantity] = useState("10");
+  const [useProductCategory, setUseProductCategory] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [condition, setCondition] = useState("Nuevo");
   const [options, setOptions] = useState<Record<string, boolean>>({
@@ -34,6 +35,7 @@ export default function Publish() {
   });
   const [saving, setSaving] = useState(false);
   const [configId, setConfigId] = useState<string | null>(null);
+  const [productCategories, setProductCategories] = useState<string[]>([]);
 
   const today = dayNames[new Date().getDay()];
 
