@@ -39,6 +39,8 @@ const App = () => (
               <Route path="publish" element={<Publish />} />
               <Route path="analytics" element={<Analytics />} />
               <Route path="subscription" element={<Subscription />} />
+              <Route path="covers" element={<DailyCovers />} />
+              <Route path="publish-preview" element={<PublishPreview />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
