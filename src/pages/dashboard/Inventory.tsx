@@ -251,7 +251,7 @@ export default function Inventory() {
                 </div>
               </div>
             ))}
-            {productImages.length < 10 && (
+            {productImages.length < 9 && (
               <button onClick={() => imageInputRef.current?.click()} className="border-2 border-dashed border-border rounded-lg aspect-square flex flex-col items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors">
                 {uploadingImages ? <Loader2 className="h-5 w-5 animate-spin" /> : <><ImagePlus className="h-5 w-5" /><span className="text-[10px] mt-1">Subir</span></>}
               </button>
