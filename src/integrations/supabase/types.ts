@@ -43,6 +43,7 @@ export type Database = {
       }
       daily_covers: {
         Row: {
+          category: string
           created_at: string
           day_of_week: string
           id: string
@@ -51,6 +52,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          category?: string
           created_at?: string
           day_of_week: string
           id?: string
@@ -59,6 +61,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          category?: string
           created_at?: string
           day_of_week?: string
           id?: string

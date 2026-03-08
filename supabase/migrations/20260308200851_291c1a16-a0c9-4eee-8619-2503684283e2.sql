@@ -1,0 +1,1 @@
+ALTER TABLE public.daily_covers ADD COLUMN category text NOT NULL DEFAULT 'General';
