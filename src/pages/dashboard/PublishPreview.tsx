@@ -280,7 +280,7 @@ export default function PublishPreview() {
           {/* Execution controls */}
           <div className="flex items-center gap-3 flex-wrap border-t border-border/60 pt-4">
             {execStatus === "idle" && (
-              <Button onClick={handleStart} disabled={limitReached || items.length === 0} size="lg">
+              <Button onClick={handleStart} disabled={blocked || items.length === 0} size="lg">
                 <Play className="h-5 w-5 mr-2" /> Iniciar publicación
               </Button>
             )}
