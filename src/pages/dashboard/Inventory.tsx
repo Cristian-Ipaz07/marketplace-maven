@@ -143,8 +143,8 @@ export default function Inventory() {
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || !user || !selectedProduct) return;
-    const remaining = 10 - productImages.length;
-    if (files.length > remaining) { toast.error(`Solo puedes agregar ${remaining} imágenes más`); return; }
+    const remaining = 9 - productImages.length;
+    if (files.length > remaining) { toast.error(`Solo puedes agregar ${remaining} imágenes más (máx. 9 de galería)`); return; }
     setUploadingImages(true);
     const newImages: ProductImage[] = [];
     for (let i = 0; i < files.length; i++) {
