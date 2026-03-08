@@ -1,0 +1,1 @@
+ALTER TABLE public.publish_configs ADD COLUMN IF NOT EXISTS use_product_category boolean NOT NULL DEFAULT false;

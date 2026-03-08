@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Rocket, Loader2, CalendarDays } from "lucide-react";
+import { Rocket, Loader2, CalendarDays, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -24,6 +24,7 @@ const marketplaceOptions = [
 export default function Publish() {
   const { user } = useAuth();
   const [quantity, setQuantity] = useState("10");
+  const [useProductCategory, setUseProductCategory] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [condition, setCondition] = useState("Nuevo");
   const [options, setOptions] = useState<Record<string, boolean>>({
@@ -34,10 +35,11 @@ export default function Publish() {
   });
   const [saving, setSaving] = useState(false);
   const [configId, setConfigId] = useState<string | null>(null);
+  const [productCategories, setProductCategories] = useState<string[]>([]);
 
   const today = dayNames[new Date().getDay()];
 
-  // Load existing config
+  // Load existing config & product categories
   useEffect(() => {
     if (!user) return;
     supabase.from("publish_configs").select("*").limit(1).then(({ data }) => {
@@ -47,10 +49,17 @@ export default function Publish() {
         setQuantity(String(c.quantity));
         setSelectedCategories(c.categories || []);
         setCondition(c.condition);
-        // Parse options array back to record
+        setUseProductCategory((c as any).use_product_category ?? false);
         const opts: Record<string, boolean> = { hide_friends: false, public_place: false, door_pickup: false, door_delivery: false };
         (c.options || []).forEach((o: string) => { if (o in opts) opts[o] = true; });
         setOptions(opts);
+      }
+    });
+    // Fetch distinct categories from inventory
+    supabase.from("products").select("category").then(({ data }) => {
+      if (data) {
+        const unique = [...new Set(data.map((p) => p.category).filter(Boolean))] as string[];
+        setProductCategories(unique);
       }
     });
   }, [user]);
@@ -67,17 +76,18 @@ export default function Publish() {
 
   const handleSave = async () => {
     if (!user) return;
-    if (selectedCategories.length === 0) { toast.error("Selecciona al menos una categoría"); return; }
+    if (!useProductCategory && selectedCategories.length === 0) { toast.error("Selecciona al menos una categoría o activa 'Usar categoría del producto'"); return; }
     setSaving(true);
     const activeOptions = Object.entries(options).filter(([, v]) => v).map(([k]) => k);
     const payload = {
       user_id: user.id,
       quantity: parseInt(quantity),
-      categories: selectedCategories,
+      categories: useProductCategory ? [] as string[] : selectedCategories,
       condition,
       options: activeOptions,
       day_of_week: today,
-    };
+      use_product_category: useProductCategory,
+    } as any;
 
     let error;
     if (configId) {
@@ -89,7 +99,8 @@ export default function Publish() {
     }
     setSaving(false);
     if (error) { toast.error("Error guardando configuración"); console.error(error); return; }
-    toast.success(`Configuración guardada: ${quantity} publicaciones en ${selectedCategories.length} categorías`);
+    const catLabel = useProductCategory ? "categoría individual por producto" : `${selectedCategories.length} categorías`;
+    toast.success(`Configuración guardada: ${quantity} publicaciones con ${catLabel}`);
   };
 
   return (
@@ -133,16 +144,43 @@ export default function Publish() {
         <Card className="border-border/60">
           <CardHeader>
             <CardTitle className="font-display text-base">Categorías</CardTitle>
-            <CardDescription>Selecciona las categorías de productos a publicar</CardDescription>
+            <CardDescription>Selecciona cómo asignar categorías a cada publicación</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {categories.map((cat) => (
-                <Badge key={cat} variant={selectedCategories.includes(cat) ? "default" : "outline"} className="cursor-pointer text-sm px-3 py-1.5 transition-colors" onClick={() => toggleCategory(cat)}>
-                  {cat}
-                </Badge>
-              ))}
+          <CardContent className="space-y-4">
+            {/* Smart toggle */}
+            <div className="flex items-center justify-between p-3 rounded-lg bg-primary/5 border border-border/60">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <div>
+                  <Label htmlFor="use_product_category" className="text-sm font-medium cursor-pointer">Usar categoría del producto</Label>
+                  <p className="text-xs text-muted-foreground">Cada artículo usará su propia categoría del inventario</p>
+                </div>
+              </div>
+              <Switch id="use_product_category" checked={useProductCategory} onCheckedChange={setUseProductCategory} />
             </div>
+
+            {useProductCategory ? (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Categorías detectadas en tu inventario:</p>
+                <div className="flex flex-wrap gap-2">
+                  {productCategories.length > 0 ? productCategories.map((cat) => (
+                    <Badge key={cat} variant="secondary" className="text-sm px-3 py-1.5">
+                      {cat}
+                    </Badge>
+                  )) : (
+                    <p className="text-xs text-muted-foreground italic">No se encontraron categorías en el inventario. Importa productos primero.</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {categories.map((cat) => (
+                  <Badge key={cat} variant={selectedCategories.includes(cat) ? "default" : "outline"} className="cursor-pointer text-sm px-3 py-1.5 transition-colors" onClick={() => toggleCategory(cat)}>
+                    {cat}
+                  </Badge>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
