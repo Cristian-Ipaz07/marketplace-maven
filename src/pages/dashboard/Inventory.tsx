@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface Product {
   id: string;
@@ -38,6 +39,7 @@ const emptyProduct = { title: "", price: "", description: "", tags: "", category
 
 export default function Inventory() {
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -46,7 +48,6 @@ export default function Inventory() {
   const [form, setForm] = useState(emptyProduct);
   const [saving, setSaving] = useState(false);
 
-  // Image upload state
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [productImages, setProductImages] = useState<ProductImage[]>([]);
@@ -72,7 +73,6 @@ export default function Inventory() {
     const ws = XLSX.utils.aoa_to_sheet([
       ["title", "price", "category", "condition", "description", "tags", "location"],
       ["Chaqueta térmica", "45000", "Ropa", "Nuevo", "Chaqueta premium resistente al frío", "chaqueta,invierno,hombre", "Bogotá"],
-      ["Gorra urbana", "15000", "Accesorios", "Nuevo", "Gorra moderna para uso diario", "gorra,urbana,moda", "Medellín"],
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Productos");
@@ -132,7 +132,6 @@ export default function Inventory() {
     toast.success("Producto eliminado");
   };
 
-  // Image management
   const openImageManager = async (product: Product) => {
     setSelectedProduct(product);
     setImageDialogOpen(true);
@@ -144,7 +143,7 @@ export default function Inventory() {
     const files = e.target.files;
     if (!files || !user || !selectedProduct) return;
     const remaining = 9 - productImages.length;
-    if (files.length > remaining) { toast.error(`Solo puedes agregar ${remaining} imágenes más (máx. 9 de galería)`); return; }
+    if (files.length > remaining) { toast.error(`Solo puedes agregar ${remaining} imágenes más (máx. 9)`); return; }
     setUploadingImages(true);
     const newImages: ProductImage[] = [];
     for (let i = 0; i < files.length; i++) {
@@ -168,33 +167,32 @@ export default function Inventory() {
     e.target.value = "";
   };
 
-
   const removeImage = async (img: ProductImage) => {
     await supabase.from("product_images").delete().eq("id", img.id);
-    // extract path from url
     const urlParts = img.image_url.split("/product-images/");
     if (urlParts[1]) await supabase.storage.from("product-images").remove([urlParts[1]]);
     setProductImages((prev) => prev.filter((i) => i.id !== img.id));
   };
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="font-display text-2xl font-bold text-foreground">Inventario</h1>
+          <h1 className="font-display text-xl sm:text-2xl font-bold text-foreground">Inventario</h1>
           <p className="text-muted-foreground text-sm mt-1">{products.length} productos en tu catálogo</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="sm" onClick={downloadTemplate}>
-            <Download className="h-4 w-4 mr-2" /> Descargar plantilla
+            <Download className="h-4 w-4 sm:mr-2" /><span className="hidden sm:inline">Plantilla</span>
           </Button>
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleFileUpload} />
           <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-            <Upload className="h-4 w-4 mr-2" /> Importar Excel
+            <Upload className="h-4 w-4 sm:mr-2" /><span className="hidden sm:inline">Importar</span>
           </Button>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
-              <Button size="sm"><Plus className="h-4 w-4 mr-2" /> Agregar producto</Button>
+              <Button size="sm"><Plus className="h-4 w-4 sm:mr-2" /><span className="hidden sm:inline">Agregar</span></Button>
             </DialogTrigger>
             <DialogContent className="max-w-lg">
               <DialogHeader><DialogTitle className="font-display">Nuevo producto</DialogTitle></DialogHeader>
@@ -218,7 +216,7 @@ export default function Inventory() {
                   </div>
                   <div><Label>Ubicación</Label><Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Ciudad" /></div>
                 </div>
-                <div><Label>Descripción</Label><Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Descripción del producto" /></div>
+                <div><Label>Descripción</Label><Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Descripción" /></div>
                 <div><Label>Etiquetas</Label><Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="etiqueta1, etiqueta2" /></div>
               </div>
               <DialogFooter>
@@ -232,12 +230,11 @@ export default function Inventory() {
       {/* Image Manager Dialog */}
       <Dialog open={imageDialogOpen} onOpenChange={setImageDialogOpen}>
         <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle className="font-display">Imágenes de Apoyo — {selectedProduct?.title}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="font-display">Imágenes — {selectedProduct?.title}</DialogTitle></DialogHeader>
           <div className="bg-primary/5 border border-border/60 rounded-lg p-3 mb-2">
-            <p className="text-xs text-muted-foreground">📌 La portada se asigna automáticamente desde <span className="font-medium text-primary">"Portadas Diarias"</span> según la categoría del producto y el día actual.</p>
+            <p className="text-xs text-muted-foreground">📌 La portada se asigna desde "Portadas Diarias" según categoría y día.</p>
           </div>
-          <p className="text-xs text-muted-foreground">Sube hasta 9 imágenes fijas de apoyo que acompañarán cada publicación.</p>
-          <div className="grid grid-cols-5 gap-3 py-2">
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 py-2">
             {productImages.filter((img) => !img.is_cover).map((img, idx) => (
               <div key={img.id} className="relative group rounded-lg overflow-hidden border-2 border-border/60 aspect-square">
                 <img src={img.image_url} alt="" className="w-full h-full object-cover" />
@@ -259,9 +256,10 @@ export default function Inventory() {
         </DialogContent>
       </Dialog>
 
+      {/* Product list */}
       <Card className="border-border/60">
-        <CardHeader className="pb-3">
-          <div className="relative max-w-sm">
+        <CardHeader className="pb-3 px-4 sm:px-6">
+          <div className="relative w-full sm:max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input placeholder="Buscar productos..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
@@ -269,7 +267,40 @@ export default function Inventory() {
         <CardContent className="p-0">
           {loading ? (
             <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+          ) : isMobile ? (
+            /* Mobile: Card layout */
+            <div className="divide-y divide-border/60">
+              {filtered.length === 0 ? (
+                <div className="text-center py-10 text-muted-foreground text-sm px-4">
+                  {products.length === 0 ? "Importa un Excel o agrega productos" : "No se encontraron productos"}
+                </div>
+              ) : (
+                filtered.map((p) => (
+                  <div key={p.id} className="p-4 flex gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-foreground text-sm truncate">{p.title}</div>
+                      <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{p.description}</div>
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        <span className="text-sm font-semibold text-foreground">${p.price}</span>
+                        <Badge variant="secondary" className="text-[10px]">{p.category}</Badge>
+                        <Badge variant="outline" className="text-[10px]">{p.condition || "Nuevo"}</Badge>
+                      </div>
+                      {p.location && <div className="text-[10px] text-muted-foreground mt-1">{p.location}</div>}
+                    </div>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => openImageManager(p)}>
+                        <ImagePlus className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => removeProduct(p.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           ) : (
+            /* Desktop: Table layout */
             <Table>
               <TableHeader>
                 <TableRow>
