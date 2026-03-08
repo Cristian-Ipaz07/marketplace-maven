@@ -25,7 +25,7 @@ export default function Landing() {
       <nav className="fixed top-0 w-full z-50 bg-background/80 backdrop-blur-lg border-b border-border">
         <div className="container flex items-center justify-between h-16">
           <Link to="/" className="font-display text-xl font-bold text-foreground tracking-tight">
-            Multi<span className="text-primary">Hub</span>
+            Market<span className="text-primary">Master</span>
           </Link>
           <div className="flex items-center gap-3">
             <Link to="/login">
