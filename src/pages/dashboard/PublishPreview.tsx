@@ -2,11 +2,12 @@ import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Play, Pause, RotateCcw, CheckCircle2, ImageIcon, AlertTriangle, ListChecks } from "lucide-react";
+import { Loader2, Play, Pause, RotateCcw, CheckCircle2, ImageIcon, AlertTriangle, ListChecks, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-
+import { useSubscription } from "@/hooks/useSubscription";
+import { Link } from "react-router-dom";
 interface Product {
   id: string;
   title: string;
