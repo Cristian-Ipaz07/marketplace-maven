@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Register() {
   const navigate = useNavigate();
@@ -18,12 +19,18 @@ export default function Register() {
     if (!name || !email || !password) { toast.error("Completa todos los campos"); return; }
     if (password.length < 6) { toast.error("La contraseña debe tener al menos 6 caracteres"); return; }
     setLoading(true);
-    // TODO: integrate with Supabase auth
-    setTimeout(() => {
-      setLoading(false);
-      toast.success("Cuenta creada exitosamente");
-      navigate("/dashboard");
-    }, 800);
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: name },
+        emailRedirectTo: window.location.origin,
+      },
+    });
+    setLoading(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Cuenta creada exitosamente");
+    navigate("/dashboard");
   };
 
   return (

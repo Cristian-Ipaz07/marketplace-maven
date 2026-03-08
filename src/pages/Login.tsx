@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -16,12 +17,11 @@ export default function Login() {
     e.preventDefault();
     if (!email || !password) { toast.error("Completa todos los campos"); return; }
     setLoading(true);
-    // TODO: integrate with Supabase auth
-    setTimeout(() => {
-      setLoading(false);
-      toast.success("Bienvenido de vuelta");
-      navigate("/dashboard");
-    }, 800);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setLoading(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Bienvenido de vuelta");
+    navigate("/dashboard");
   };
 
   return (
