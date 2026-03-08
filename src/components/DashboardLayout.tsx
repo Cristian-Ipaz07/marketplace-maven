@@ -1,9 +1,10 @@
 import { Link, useLocation, Outlet, useNavigate } from "react-router-dom";
-import { Package, Users, Settings, CreditCard, BarChart3, LayoutDashboard, LogOut, ImageIcon, Eye } from "lucide-react";
+import { Package, Users, Settings, CreditCard, BarChart3, LayoutDashboard, LogOut, ImageIcon, Eye, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
-
+import { useIsAdmin } from "@/hooks/useIsAdmin";
+import TrialBanner from "@/components/TrialBanner";
 import { ClipboardList } from "lucide-react";
 
 const navItems = [
@@ -21,12 +22,17 @@ const navItems = [
 export default function DashboardLayout() {
   const { pathname } = useLocation();
   const { signOut } = useAuth();
+  const { isAdmin } = useIsAdmin();
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
     await signOut();
     navigate("/");
   };
+
+  const allNavItems = isAdmin
+    ? [...navItems, { to: "/dashboard/admin", icon: Shield, label: "Admin" }]
+    : navItems;
 
   return (
     <div className="flex min-h-screen">
@@ -37,8 +43,10 @@ export default function DashboardLayout() {
           </Link>
         </div>
         <nav className="flex-1 px-3 space-y-1">
-          {navItems.map((item) => {
-            const active = (item as any).exact ? pathname === item.to : pathname.startsWith(item.to);
+          {allNavItems.map((item) => {
+            const active = (item as any).exact
+              ? pathname === item.to
+              : pathname === item.to || pathname.startsWith(item.to + "/");
             return (
               <Link
                 key={item.to}
@@ -69,6 +77,7 @@ export default function DashboardLayout() {
       </aside>
 
       <main className="flex-1 overflow-auto">
+        <TrialBanner />
         <Outlet />
       </main>
     </div>
