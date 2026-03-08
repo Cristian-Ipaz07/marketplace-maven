@@ -39,7 +39,7 @@ export default function Publish() {
 
   const today = dayNames[new Date().getDay()];
 
-  // Load existing config
+  // Load existing config & product categories
   useEffect(() => {
     if (!user) return;
     supabase.from("publish_configs").select("*").limit(1).then(({ data }) => {
@@ -49,10 +49,17 @@ export default function Publish() {
         setQuantity(String(c.quantity));
         setSelectedCategories(c.categories || []);
         setCondition(c.condition);
-        // Parse options array back to record
+        setUseProductCategory((c as any).use_product_category ?? false);
         const opts: Record<string, boolean> = { hide_friends: false, public_place: false, door_pickup: false, door_delivery: false };
         (c.options || []).forEach((o: string) => { if (o in opts) opts[o] = true; });
         setOptions(opts);
+      }
+    });
+    // Fetch distinct categories from inventory
+    supabase.from("products").select("category").then(({ data }) => {
+      if (data) {
+        const unique = [...new Set(data.map((p) => p.category).filter(Boolean))] as string[];
+        setProductCategories(unique);
       }
     });
   }, [user]);
