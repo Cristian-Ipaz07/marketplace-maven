@@ -76,17 +76,18 @@ export default function Publish() {
 
   const handleSave = async () => {
     if (!user) return;
-    if (selectedCategories.length === 0) { toast.error("Selecciona al menos una categoría"); return; }
+    if (!useProductCategory && selectedCategories.length === 0) { toast.error("Selecciona al menos una categoría o activa 'Usar categoría del producto'"); return; }
     setSaving(true);
     const activeOptions = Object.entries(options).filter(([, v]) => v).map(([k]) => k);
     const payload = {
       user_id: user.id,
       quantity: parseInt(quantity),
-      categories: selectedCategories,
+      categories: useProductCategory ? [] as string[] : selectedCategories,
       condition,
       options: activeOptions,
       day_of_week: today,
-    };
+      use_product_category: useProductCategory,
+    } as any;
 
     let error;
     if (configId) {
@@ -98,7 +99,8 @@ export default function Publish() {
     }
     setSaving(false);
     if (error) { toast.error("Error guardando configuración"); console.error(error); return; }
-    toast.success(`Configuración guardada: ${quantity} publicaciones en ${selectedCategories.length} categorías`);
+    const catLabel = useProductCategory ? "categoría individual por producto" : `${selectedCategories.length} categorías`;
+    toast.success(`Configuración guardada: ${quantity} publicaciones con ${catLabel}`);
   };
 
   return (
