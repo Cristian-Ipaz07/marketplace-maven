@@ -2,11 +2,12 @@ import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Play, Pause, RotateCcw, CheckCircle2, ImageIcon, AlertTriangle, ListChecks } from "lucide-react";
+import { Loader2, Play, Pause, RotateCcw, CheckCircle2, ImageIcon, AlertTriangle, ListChecks, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-
+import { useSubscription } from "@/hooks/useSubscription";
+import { Link } from "react-router-dom";
 interface Product {
   id: string;
   title: string;
@@ -41,6 +42,7 @@ const dayNames = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes"
 
 export default function PublishPreview() {
   const { user } = useAuth();
+  const { isExpired: subExpired } = useSubscription();
   const [items, setItems] = useState<PublishItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [dailyLimit, setDailyLimit] = useState(15);
@@ -161,9 +163,10 @@ export default function PublishPreview() {
 
   const remaining = Math.max(0, dailyLimit - todayPublished);
   const limitReached = dailyLimit < 9999 && remaining <= 0;
+  const blocked = limitReached || subExpired;
 
   const handleStart = async () => {
-    if (!user || limitReached) return;
+    if (!user || blocked) return;
     const total = Math.min(items.length, remaining);
     const payload = { user_id: user.id, day_of_week: todayKey, total_publications: total, completed_count: 0, status: "running", started_at: new Date().toISOString() };
 
@@ -218,8 +221,24 @@ export default function PublishPreview() {
         </p>
       </div>
 
+      {/* Subscription Expired */}
+      {subExpired && (
+        <Card className="border-destructive/50 bg-destructive/5 mb-6">
+          <CardContent className="p-4 flex items-center gap-3">
+            <Lock className="h-5 w-5 text-destructive shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-destructive">Suscripción vencida</p>
+              <p className="text-xs text-muted-foreground">Tu prueba o plan ha expirado. Selecciona un plan para continuar publicando.</p>
+            </div>
+            <Link to="/dashboard/subscription">
+              <Button size="sm" variant="destructive">Ver planes</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Limit Warning */}
-      {limitReached && (
+      {!subExpired && limitReached && (
         <Card className="border-destructive/50 bg-destructive/5 mb-6">
           <CardContent className="p-4 flex items-center gap-3">
             <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
@@ -261,7 +280,7 @@ export default function PublishPreview() {
           {/* Execution controls */}
           <div className="flex items-center gap-3 flex-wrap border-t border-border/60 pt-4">
             {execStatus === "idle" && (
-              <Button onClick={handleStart} disabled={limitReached || items.length === 0} size="lg">
+              <Button onClick={handleStart} disabled={blocked || items.length === 0} size="lg">
                 <Play className="h-5 w-5 mr-2" /> Iniciar publicación
               </Button>
             )}
