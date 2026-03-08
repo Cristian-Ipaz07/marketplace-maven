@@ -41,6 +41,33 @@ export type Database = {
         }
         Relationships: []
       }
+      daily_covers: {
+        Row: {
+          created_at: string
+          day_of_week: string
+          id: string
+          image_url: string
+          position: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          day_of_week: string
+          id?: string
+          image_url: string
+          position?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          day_of_week?: string
+          id?: string
+          image_url?: string
+          position?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       product_images: {
         Row: {
           created_at: string

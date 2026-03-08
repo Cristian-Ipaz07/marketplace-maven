@@ -143,8 +143,8 @@ export default function Inventory() {
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || !user || !selectedProduct) return;
-    const remaining = 10 - productImages.length;
-    if (files.length > remaining) { toast.error(`Solo puedes agregar ${remaining} imágenes más`); return; }
+    const remaining = 9 - productImages.length;
+    if (files.length > remaining) { toast.error(`Solo puedes agregar ${remaining} imágenes más (máx. 9 de galería)`); return; }
     setUploadingImages(true);
     const newImages: ProductImage[] = [];
     for (let i = 0; i < files.length; i++) {
@@ -238,8 +238,8 @@ export default function Inventory() {
       {/* Image Manager Dialog */}
       <Dialog open={imageDialogOpen} onOpenChange={setImageDialogOpen}>
         <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle className="font-display">Imágenes — {selectedProduct?.title}</DialogTitle></DialogHeader>
-          <p className="text-xs text-muted-foreground">Máximo 10 imágenes. La primera es la portada.</p>
+          <DialogHeader><DialogTitle className="font-display">Galería de Apoyo — {selectedProduct?.title}</DialogTitle></DialogHeader>
+          <p className="text-xs text-muted-foreground">Sube hasta 9 imágenes fijas de apoyo. La portada se asigna automáticamente desde "Portadas Diarias".</p>
           <div className="grid grid-cols-5 gap-3 py-2">
             {productImages.map((img) => (
               <div key={img.id} className={`relative group rounded-lg overflow-hidden border-2 aspect-square ${img.is_cover ? "border-primary" : "border-border/60"}`}>
@@ -251,7 +251,7 @@ export default function Inventory() {
                 </div>
               </div>
             ))}
-            {productImages.length < 10 && (
+            {productImages.length < 9 && (
               <button onClick={() => imageInputRef.current?.click()} className="border-2 border-dashed border-border rounded-lg aspect-square flex flex-col items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors">
                 {uploadingImages ? <Loader2 className="h-5 w-5 animate-spin" /> : <><ImagePlus className="h-5 w-5" /><span className="text-[10px] mt-1">Subir</span></>}
               </button>

@@ -1,5 +1,5 @@
 import { Link, useLocation, Outlet, useNavigate } from "react-router-dom";
-import { Package, Users, Settings, CreditCard, BarChart3, LayoutDashboard, LogOut } from "lucide-react";
+import { Package, Users, Settings, CreditCard, BarChart3, LayoutDashboard, LogOut, ImageIcon, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -7,8 +7,10 @@ import { useAuth } from "@/contexts/AuthContext";
 const navItems = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Inicio" },
   { to: "/dashboard/inventory", icon: Package, label: "Inventario" },
+  { to: "/dashboard/covers", icon: ImageIcon, label: "Portadas" },
   { to: "/dashboard/profiles", icon: Users, label: "Perfiles" },
-  { to: "/dashboard/publish", icon: Settings, label: "Publicar" },
+  { to: "/dashboard/publish", icon: Settings, label: "Configurar" },
+  { to: "/dashboard/publish-preview", icon: Eye, label: "Publicar" },
   { to: "/dashboard/analytics", icon: BarChart3, label: "Analítica" },
   { to: "/dashboard/subscription", icon: CreditCard, label: "Suscripción" },
 ];

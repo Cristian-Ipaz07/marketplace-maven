@@ -15,6 +15,8 @@ import Profiles from "./pages/dashboard/Profiles";
 import Publish from "./pages/dashboard/Publish";
 import Analytics from "./pages/dashboard/Analytics";
 import Subscription from "./pages/dashboard/Subscription";
+import DailyCovers from "./pages/dashboard/DailyCovers";
+import PublishPreview from "./pages/dashboard/PublishPreview";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -37,6 +39,8 @@ const App = () => (
               <Route path="publish" element={<Publish />} />
               <Route path="analytics" element={<Analytics />} />
               <Route path="subscription" element={<Subscription />} />
+              <Route path="covers" element={<DailyCovers />} />
+              <Route path="publish-preview" element={<PublishPreview />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
