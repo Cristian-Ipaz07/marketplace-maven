@@ -168,12 +168,6 @@ export default function Inventory() {
     e.target.value = "";
   };
 
-  const setCover = async (imgId: string) => {
-    if (!selectedProduct) return;
-    await supabase.from("product_images").update({ is_cover: false }).eq("product_id", selectedProduct.id);
-    await supabase.from("product_images").update({ is_cover: true }).eq("id", imgId);
-    setProductImages((prev) => prev.map((img) => ({ ...img, is_cover: img.id === imgId })));
-  };
 
   const removeImage = async (img: ProductImage) => {
     await supabase.from("product_images").delete().eq("id", img.id);
