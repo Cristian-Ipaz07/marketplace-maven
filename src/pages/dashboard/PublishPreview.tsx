@@ -221,8 +221,24 @@ export default function PublishPreview() {
         </p>
       </div>
 
+      {/* Subscription Expired */}
+      {subExpired && (
+        <Card className="border-destructive/50 bg-destructive/5 mb-6">
+          <CardContent className="p-4 flex items-center gap-3">
+            <Lock className="h-5 w-5 text-destructive shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-destructive">Suscripción vencida</p>
+              <p className="text-xs text-muted-foreground">Tu prueba o plan ha expirado. Selecciona un plan para continuar publicando.</p>
+            </div>
+            <Link to="/dashboard/subscription">
+              <Button size="sm" variant="destructive">Ver planes</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Limit Warning */}
-      {limitReached && (
+      {!subExpired && limitReached && (
         <Card className="border-destructive/50 bg-destructive/5 mb-6">
           <CardContent className="p-4 flex items-center gap-3">
             <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
