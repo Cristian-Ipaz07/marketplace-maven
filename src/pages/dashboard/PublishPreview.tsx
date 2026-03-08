@@ -163,9 +163,10 @@ export default function PublishPreview() {
 
   const remaining = Math.max(0, dailyLimit - todayPublished);
   const limitReached = dailyLimit < 9999 && remaining <= 0;
+  const blocked = limitReached || subExpired;
 
   const handleStart = async () => {
-    if (!user || limitReached) return;
+    if (!user || blocked) return;
     const total = Math.min(items.length, remaining);
     const payload = { user_id: user.id, day_of_week: todayKey, total_publications: total, completed_count: 0, status: "running", started_at: new Date().toISOString() };
 
