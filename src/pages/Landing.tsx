@@ -141,7 +141,7 @@ export default function Landing() {
       {/* Footer */}
       <footer className="border-t border-border py-10">
         <div className="container text-center text-sm text-muted-foreground">
-          © {new Date().getFullYear()} MultiHub. Todos los derechos reservados.
+          © {new Date().getFullYear()} MarketMaster. Todos los derechos reservados.
         </div>
       </footer>
     </div>
