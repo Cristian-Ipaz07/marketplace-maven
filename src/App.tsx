@@ -17,6 +17,7 @@ import Analytics from "./pages/dashboard/Analytics";
 import Subscription from "./pages/dashboard/Subscription";
 import DailyCovers from "./pages/dashboard/DailyCovers";
 import PublishPreview from "./pages/dashboard/PublishPreview";
+import PublicationLogs from "./pages/dashboard/PublicationLogs";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
