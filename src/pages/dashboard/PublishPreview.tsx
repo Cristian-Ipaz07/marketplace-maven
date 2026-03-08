@@ -42,6 +42,7 @@ const dayNames = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes"
 
 export default function PublishPreview() {
   const { user } = useAuth();
+  const { isExpired: subExpired } = useSubscription();
   const [items, setItems] = useState<PublishItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [dailyLimit, setDailyLimit] = useState(15);
