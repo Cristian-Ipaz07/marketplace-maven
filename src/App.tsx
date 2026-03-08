@@ -42,6 +42,7 @@ const App = () => (
               <Route path="subscription" element={<Subscription />} />
               <Route path="covers" element={<DailyCovers />} />
               <Route path="publish-preview" element={<PublishPreview />} />
+              <Route path="logs" element={<PublicationLogs />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
