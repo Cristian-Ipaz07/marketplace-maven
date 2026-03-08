@@ -4,13 +4,16 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 
+import { ClipboardList } from "lucide-react";
+
 const navItems = [
-  { to: "/dashboard", icon: LayoutDashboard, label: "Inicio" },
+  { to: "/dashboard", icon: LayoutDashboard, label: "Inicio", exact: true },
   { to: "/dashboard/inventory", icon: Package, label: "Inventario" },
   { to: "/dashboard/covers", icon: ImageIcon, label: "Portadas" },
   { to: "/dashboard/profiles", icon: Users, label: "Perfiles" },
   { to: "/dashboard/publish", icon: Settings, label: "Configurar" },
   { to: "/dashboard/publish-preview", icon: Eye, label: "Publicar" },
+  { to: "/dashboard/logs", icon: ClipboardList, label: "Registro" },
   { to: "/dashboard/analytics", icon: BarChart3, label: "Analítica" },
   { to: "/dashboard/subscription", icon: CreditCard, label: "Suscripción" },
 ];
@@ -35,7 +38,7 @@ export default function DashboardLayout() {
         </div>
         <nav className="flex-1 px-3 space-y-1">
           {navItems.map((item) => {
-            const active = item.to === "/dashboard" ? pathname === "/dashboard" : pathname === item.to;
+            const active = (item as any).exact ? pathname === item.to : pathname.startsWith(item.to);
             return (
               <Link
                 key={item.to}

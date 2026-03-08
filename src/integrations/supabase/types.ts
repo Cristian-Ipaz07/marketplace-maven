@@ -14,9 +14,49 @@ export type Database = {
   }
   public: {
     Tables: {
+      campaign_executions: {
+        Row: {
+          completed_count: number
+          created_at: string
+          day_of_week: string
+          id: string
+          paused_at: string | null
+          started_at: string | null
+          status: string
+          total_publications: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_count?: number
+          created_at?: string
+          day_of_week: string
+          id?: string
+          paused_at?: string | null
+          started_at?: string | null
+          status?: string
+          total_publications?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed_count?: number
+          created_at?: string
+          day_of_week?: string
+          id?: string
+          paused_at?: string | null
+          started_at?: string | null
+          status?: string
+          total_publications?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       connected_accounts: {
         Row: {
           active: boolean
+          chrome_profile_path: string | null
           created_at: string
           id: string
           name: string
@@ -25,6 +65,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          chrome_profile_path?: string | null
           created_at?: string
           id?: string
           name: string
@@ -33,6 +74,7 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          chrome_profile_path?: string | null
           created_at?: string
           id?: string
           name?: string
@@ -178,6 +220,45 @@ export type Database = {
         }
         Relationships: []
       }
+      publication_logs: {
+        Row: {
+          category: string | null
+          cover_id: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          product_id: string
+          profile_id: string | null
+          published_at: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          category?: string | null
+          cover_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          product_id: string
+          profile_id?: string | null
+          published_at?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          category?: string | null
+          cover_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          product_id?: string
+          profile_id?: string | null
+          published_at?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       publish_configs: {
         Row: {
           categories: string[]
@@ -213,6 +294,39 @@ export type Database = {
           quantity?: number
           updated_at?: string
           use_product_category?: boolean
+          user_id?: string
+        }
+        Relationships: []
+      }
+      subscriptions: {
+        Row: {
+          active: boolean
+          created_at: string
+          daily_limit: number
+          id: string
+          plan: string
+          price: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          daily_limit?: number
+          id?: string
+          plan?: string
+          price?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          daily_limit?: number
+          id?: string
+          plan?: string
+          price?: number
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
