@@ -49,7 +49,7 @@ export default function Landing() {
             className="max-w-3xl mx-auto text-center"
           >
             <span className="inline-block px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6">
-              Plataforma SaaS para vendedores
+              Tu aliado en ventas diarias
             </span>
             <h1 className="font-display text-5xl md:text-6xl font-bold tracking-tight text-foreground leading-tight mb-6">
               Tu catálogo.{" "}

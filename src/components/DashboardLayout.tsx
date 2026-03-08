@@ -39,7 +39,7 @@ export default function DashboardLayout() {
       <aside className="w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col shrink-0">
         <div className="p-6">
           <Link to="/" className="font-display text-xl font-bold tracking-tight">
-            Multi<span className="text-sidebar-primary">Hub</span>
+            Market<span className="text-sidebar-primary">Master</span>
           </Link>
         </div>
         <nav className="flex-1 px-3 space-y-1">
