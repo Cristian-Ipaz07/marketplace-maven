@@ -41,12 +41,52 @@ export type Database = {
         }
         Relationships: []
       }
+      product_images: {
+        Row: {
+          created_at: string
+          id: string
+          image_url: string
+          is_cover: boolean
+          position: number
+          product_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          image_url: string
+          is_cover?: boolean
+          position?: number
+          product_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          image_url?: string
+          is_cover?: boolean
+          position?: number
+          product_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_images_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       products: {
         Row: {
           category: string | null
+          condition: string | null
           created_at: string
           description: string | null
           id: string
+          location: string | null
           price: string
           tags: string | null
           title: string
@@ -55,9 +95,11 @@ export type Database = {
         }
         Insert: {
           category?: string | null
+          condition?: string | null
           created_at?: string
           description?: string | null
           id?: string
+          location?: string | null
           price?: string
           tags?: string | null
           title: string
@@ -66,9 +108,11 @@ export type Database = {
         }
         Update: {
           category?: string | null
+          condition?: string | null
           created_at?: string
           description?: string | null
           id?: string
+          location?: string | null
           price?: string
           tags?: string | null
           title?: string
@@ -109,6 +153,7 @@ export type Database = {
           categories: string[]
           condition: string
           created_at: string
+          day_of_week: string | null
           id: string
           options: string[]
           quantity: number
@@ -119,6 +164,7 @@ export type Database = {
           categories?: string[]
           condition?: string
           created_at?: string
+          day_of_week?: string | null
           id?: string
           options?: string[]
           quantity?: number
@@ -129,6 +175,7 @@ export type Database = {
           categories?: string[]
           condition?: string
           created_at?: string
+          day_of_week?: string | null
           id?: string
           options?: string[]
           quantity?: number
