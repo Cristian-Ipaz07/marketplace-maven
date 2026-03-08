@@ -1,7 +1,8 @@
-import { Link, useLocation, Outlet } from "react-router-dom";
+import { Link, useLocation, Outlet, useNavigate } from "react-router-dom";
 import { Package, Users, Settings, CreditCard, BarChart3, LayoutDashboard, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Inicio" },
@@ -14,10 +15,16 @@ const navItems = [
 
 export default function DashboardLayout() {
   const { pathname } = useLocation();
+  const { signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/");
+  };
 
   return (
     <div className="flex min-h-screen">
-      {/* Sidebar */}
       <aside className="w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col shrink-0">
         <div className="p-6">
           <Link to="/" className="font-display text-xl font-bold tracking-tight">
@@ -45,15 +52,17 @@ export default function DashboardLayout() {
           })}
         </nav>
         <div className="p-3 border-t border-sidebar-border">
-          <Link to="/">
-            <Button variant="ghost" size="sm" className="w-full justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50">
-              <LogOut className="h-4 w-4 mr-2" /> Cerrar sesión
-            </Button>
-          </Link>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+            onClick={handleSignOut}
+          >
+            <LogOut className="h-4 w-4 mr-2" /> Cerrar sesión
+          </Button>
         </div>
       </aside>
 
-      {/* Main */}
       <main className="flex-1 overflow-auto">
         <Outlet />
       </main>
