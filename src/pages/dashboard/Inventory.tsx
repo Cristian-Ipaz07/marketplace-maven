@@ -238,8 +238,8 @@ export default function Inventory() {
       {/* Image Manager Dialog */}
       <Dialog open={imageDialogOpen} onOpenChange={setImageDialogOpen}>
         <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle className="font-display">Imágenes — {selectedProduct?.title}</DialogTitle></DialogHeader>
-          <p className="text-xs text-muted-foreground">Máximo 10 imágenes. La primera es la portada.</p>
+          <DialogHeader><DialogTitle className="font-display">Galería de Apoyo — {selectedProduct?.title}</DialogTitle></DialogHeader>
+          <p className="text-xs text-muted-foreground">Sube hasta 9 imágenes fijas de apoyo. La portada se asigna automáticamente desde "Portadas Diarias".</p>
           <div className="grid grid-cols-5 gap-3 py-2">
             {productImages.map((img) => (
               <div key={img.id} className={`relative group rounded-lg overflow-hidden border-2 aspect-square ${img.is_cover ? "border-primary" : "border-border/60"}`}>
