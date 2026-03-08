@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Check, Crown, Zap, Building2, Loader2, Ticket } from "lucide-react";
+import { Check, Crown, Zap, Building2, Loader2, Ticket, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -44,16 +45,41 @@ const plans = [
 
 export default function Subscription() {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [currentPlan, setCurrentPlan] = useState("basico");
   const [subId, setSubId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isTrial, setIsTrial] = useState(false);
   const [trialEndsAt, setTrialEndsAt] = useState<string | null>(null);
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
+  const [checkingOut, setCheckingOut] = useState<string | null>(null);
 
   // Coupon
   const [couponCode, setCouponCode] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState<{ id: string; code: string; discount_percent: number; discount_amount: number } | null>(null);
   const [validatingCoupon, setValidatingCoupon] = useState(false);
+
+  // Handle payment return
+  useEffect(() => {
+    const payment = searchParams.get("payment");
+    const plan = searchParams.get("plan");
+    if (payment === "success") {
+      toast.success(`¡Pago exitoso! Tu plan ${plan || ""} se activará en unos segundos.`);
+      searchParams.delete("payment");
+      searchParams.delete("plan");
+      setSearchParams(searchParams, { replace: true });
+      // Refresh subscription after a short delay for webhook processing
+      setTimeout(() => window.location.reload(), 3000);
+    } else if (payment === "failure") {
+      toast.error("El pago no se completó. Intenta de nuevo.");
+      searchParams.delete("payment");
+      setSearchParams(searchParams, { replace: true });
+    } else if (payment === "pending") {
+      toast.info("Tu pago está pendiente de confirmación.");
+      searchParams.delete("payment");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -61,8 +87,9 @@ export default function Subscription() {
       if (data && data.length > 0) {
         setCurrentPlan(data[0].plan);
         setSubId(data[0].id);
-        setIsTrial((data[0] as any).is_trial || false);
-        setTrialEndsAt((data[0] as any).trial_ends_at || null);
+        setIsTrial(data[0].is_trial || false);
+        setTrialEndsAt(data[0].trial_ends_at || null);
+        setExpiresAt(data[0].expires_at || null);
       }
       setLoading(false);
     });
@@ -105,66 +132,71 @@ export default function Subscription() {
     return Math.max(0, Math.round(price));
   };
 
-  const selectPlan = async (planId: string) => {
-    if (!user || planId === currentPlan) return;
+  const handlePayment = async (planId: string) => {
+    if (!user) return;
     const plan = plans.find((p) => p.id === planId)!;
     const finalPrice = calcFinalPrice(plan.price);
-    const payload: any = {
-      user_id: user.id,
-      plan: planId,
-      daily_limit: plan.dailyLimit,
-      price: plan.price,
-      active: true,
-      is_trial: false,
-      trial_ends_at: null,
-      final_price: finalPrice,
-      coupon_id: appliedCoupon?.id || null,
-    };
 
-    let error;
-    if (subId) {
-      ({ error } = await supabase.from("subscriptions").update(payload).eq("id", subId));
-    } else {
-      const res = await supabase.from("subscriptions").insert(payload).select("id").single();
-      error = res.error;
-      if (res.data) setSubId(res.data.id);
+    setCheckingOut(planId);
+    try {
+      const { data, error } = await supabase.functions.invoke("mercadopago-checkout", {
+        body: {
+          planId: plan.id,
+          planName: plan.name,
+          price: plan.price,
+          finalPrice,
+          couponId: appliedCoupon?.id || null,
+        },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      // Redirect to Mercado Pago
+      const checkoutUrl = data.init_point;
+      if (checkoutUrl) {
+        window.location.href = checkoutUrl;
+      } else {
+        throw new Error("No checkout URL received");
+      }
+    } catch (err: any) {
+      console.error("Checkout error:", err);
+      toast.error("Error al crear el pago. Intenta de nuevo.");
+      setCheckingOut(null);
     }
-
-    if (appliedCoupon) {
-      await supabase.from("coupons").update({ current_uses: (appliedCoupon as any).current_uses + 1 }).eq("id", appliedCoupon.id);
-    }
-
-    if (error) { toast.error("Error actualizando plan"); return; }
-    setCurrentPlan(planId);
-    setIsTrial(false);
-    toast.success(`Plan actualizado a ${plan.name}${appliedCoupon ? ` con cupón ${appliedCoupon.code}` : ""}`);
   };
 
-  if (loading) return <div className="p-8 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+  if (loading) return <div className="p-4 sm:p-8 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
 
   const activePlan = plans.find((p) => p.id === currentPlan) || plans[0];
 
   return (
-    <div className="p-8 max-w-5xl">
+    <div className="p-4 sm:p-8 max-w-5xl">
       <div className="mb-6">
-        <h1 className="font-display text-2xl font-bold text-foreground">Suscripción</h1>
-        <p className="text-muted-foreground text-sm mt-1">Gestiona tu plan y límites de publicación</p>
+        <h1 className="font-display text-xl sm:text-2xl font-bold text-foreground">Suscripción</h1>
+        <p className="text-muted-foreground text-sm mt-1">Gestiona tu plan y realiza pagos con Mercado Pago</p>
       </div>
 
+      {/* Current plan */}
       <Card className="border-border/60 mb-6">
-        <CardContent className="p-6 flex items-center justify-between flex-wrap gap-3">
+        <CardContent className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className="font-display font-semibold text-foreground">Plan actual:</span>
               <Badge variant="default">{activePlan.name}</Badge>
               {isTrial && <Badge variant="outline" className="text-primary">Prueba gratuita</Badge>}
             </div>
             <p className="text-sm text-muted-foreground">
-              Límite: {activePlan.dailyLimit >= 9999 ? "Ilimitado" : `${activePlan.dailyLimit} publicaciones/día`} · {activePlan.priceLabel} COP/mes
+              Límite: {activePlan.dailyLimit >= 9999 ? "Ilimitado" : `${activePlan.dailyLimit} pub/día`} · {activePlan.priceLabel} COP/mes
             </p>
             {isTrial && trialEndsAt && (
               <p className="text-xs text-primary mt-1">
                 Tu prueba gratuita vence el {new Date(trialEndsAt).toLocaleDateString()}
+              </p>
+            )}
+            {!isTrial && expiresAt && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Expira: {new Date(expiresAt).toLocaleDateString()}
               </p>
             )}
           </div>
@@ -172,21 +204,21 @@ export default function Subscription() {
       </Card>
 
       {/* Coupon */}
-      <Card className="border-border/60 mb-8">
+      <Card className="border-border/60 mb-6 sm:mb-8">
         <CardContent className="p-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             <Ticket className="h-4 w-4 text-muted-foreground shrink-0" />
             <Input
               placeholder="Código de cupón"
               value={couponCode}
               onChange={(e) => setCouponCode(e.target.value)}
-              className="max-w-xs uppercase"
+              className="max-w-[200px] sm:max-w-xs uppercase"
             />
             <Button variant="outline" size="sm" onClick={validateCoupon} disabled={validatingCoupon}>
               {validatingCoupon ? <Loader2 className="h-3 w-3 animate-spin" /> : "Aplicar"}
             </Button>
             {appliedCoupon && (
-              <Badge variant="default" className="ml-2">
+              <Badge variant="default">
                 {appliedCoupon.discount_percent > 0 && `${appliedCoupon.discount_percent}% off`}
                 {appliedCoupon.discount_amount > 0 && ` -$${appliedCoupon.discount_amount.toLocaleString()}`}
               </Badge>
@@ -195,12 +227,14 @@ export default function Subscription() {
         </CardContent>
       </Card>
 
-      <div className="grid md:grid-cols-3 gap-6">
+      {/* Plans */}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {plans.map((plan) => {
-          const isCurrent = plan.id === currentPlan;
+          const isCurrent = plan.id === currentPlan && !isTrial;
           const Icon = plan.icon;
           const finalPrice = calcFinalPrice(plan.price);
           const hasDiscount = appliedCoupon && finalPrice < plan.price;
+          const isLoading = checkingOut === plan.id;
           return (
             <Card key={plan.id} className={`border-border/60 relative ${plan.recommended ? "ring-2 ring-primary/30 border-primary/40" : ""}`}>
               {plan.recommended && (
@@ -208,43 +242,53 @@ export default function Subscription() {
                   <Crown className="h-3 w-3" /> Recomendado
                 </div>
               )}
-              <CardContent className="p-8">
+              <CardContent className="p-5 sm:p-8">
                 <div className="flex items-center gap-2 mb-1">
                   <Icon className="h-5 w-5 text-primary" />
-                  <h3 className="font-display text-xl font-bold text-foreground">{plan.name}</h3>
+                  <h3 className="font-display text-lg sm:text-xl font-bold text-foreground">{plan.name}</h3>
                 </div>
-                <p className="text-muted-foreground text-sm mb-6">{plan.desc}</p>
-                <div className="mb-6">
+                <p className="text-muted-foreground text-sm mb-5 sm:mb-6">{plan.desc}</p>
+                <div className="mb-5 sm:mb-6">
                   {hasDiscount ? (
                     <>
                       <span className="text-lg text-muted-foreground line-through mr-2">{plan.priceLabel}</span>
-                      <span className="text-4xl font-display font-bold text-foreground">${finalPrice.toLocaleString()}</span>
+                      <span className="text-3xl sm:text-4xl font-display font-bold text-foreground">${finalPrice.toLocaleString()}</span>
                     </>
                   ) : (
-                    <span className="text-4xl font-display font-bold text-foreground">{plan.priceLabel}</span>
+                    <span className="text-3xl sm:text-4xl font-display font-bold text-foreground">{plan.priceLabel}</span>
                   )}
-                  <span className="text-base font-normal text-muted-foreground ml-1">COP/mes</span>
+                  <span className="text-sm sm:text-base font-normal text-muted-foreground ml-1">COP/mes</span>
                 </div>
-                <ul className="space-y-3 mb-8">
+                <ul className="space-y-2 sm:space-y-3 mb-6 sm:mb-8">
                   {plan.features.map((t) => (
-                    <li key={t} className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Check className="h-4 w-4 text-accent" />{t}
+                    <li key={t} className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
+                      <Check className="h-4 w-4 text-accent shrink-0" />{t}
                     </li>
                   ))}
                 </ul>
                 <Button
                   variant={isCurrent ? "outline" : "default"}
                   className="w-full"
-                  disabled={isCurrent && !isTrial}
-                  onClick={() => selectPlan(plan.id)}
+                  disabled={isCurrent || isLoading}
+                  onClick={() => handlePayment(plan.id)}
                 >
-                  {isCurrent && !isTrial ? "Plan actual" : isCurrent && isTrial ? "Activar plan" : `Seleccionar ${plan.name}`}
+                  {isLoading ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Redirigiendo...</>
+                  ) : isCurrent ? (
+                    "Plan actual"
+                  ) : (
+                    <><ExternalLink className="h-4 w-4 mr-2" />Pagar con Mercado Pago</>
+                  )}
                 </Button>
               </CardContent>
             </Card>
           );
         })}
       </div>
+
+      <p className="text-xs text-muted-foreground text-center mt-6">
+        Los pagos se procesan de forma segura a través de Mercado Pago. Al completar el pago, tu plan se activará automáticamente.
+      </p>
     </div>
   );
 }
