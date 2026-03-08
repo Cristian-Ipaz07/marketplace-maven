@@ -12,8 +12,8 @@ export default function Overview() {
   return (
     <div className="p-8">
       <div className="mb-8">
-        <h1 className="font-display text-2xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-muted-foreground text-sm mt-1">Resumen general de tu actividad</p>
+        <h1 className="font-display text-2xl font-bold text-foreground">Bienvenido a MarketMaster</h1>
+        <p className="text-muted-foreground text-sm mt-1">Tu aliado en ventas diarias — resumen general de tu actividad</p>
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

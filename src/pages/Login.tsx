@@ -30,7 +30,7 @@ export default function Login() {
       <Card className="w-full max-w-md relative z-10 border-border/60">
         <CardHeader className="text-center">
           <Link to="/" className="font-display text-2xl font-bold text-foreground tracking-tight mb-2 block">
-            Multi<span className="text-primary">Hub</span>
+            Market<span className="text-primary">Master</span>
           </Link>
           <CardTitle className="font-display text-xl">Iniciar sesión</CardTitle>
           <CardDescription>Ingresa a tu cuenta para continuar</CardDescription>
