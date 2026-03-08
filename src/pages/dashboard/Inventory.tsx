@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Upload, Search, Plus, Trash2, Loader2, Download, ImagePlus, Star, X } from "lucide-react";
+import { Upload, Search, Plus, Trash2, Loader2, Download, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
@@ -168,12 +168,6 @@ export default function Inventory() {
     e.target.value = "";
   };
 
-  const setCover = async (imgId: string) => {
-    if (!selectedProduct) return;
-    await supabase.from("product_images").update({ is_cover: false }).eq("product_id", selectedProduct.id);
-    await supabase.from("product_images").update({ is_cover: true }).eq("id", imgId);
-    setProductImages((prev) => prev.map((img) => ({ ...img, is_cover: img.id === imgId })));
-  };
 
   const removeImage = async (img: ProductImage) => {
     await supabase.from("product_images").delete().eq("id", img.id);
@@ -238,20 +232,24 @@ export default function Inventory() {
       {/* Image Manager Dialog */}
       <Dialog open={imageDialogOpen} onOpenChange={setImageDialogOpen}>
         <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle className="font-display">Galería de Apoyo — {selectedProduct?.title}</DialogTitle></DialogHeader>
-          <p className="text-xs text-muted-foreground">Sube hasta 9 imágenes fijas de apoyo. La portada se asigna automáticamente desde "Portadas Diarias".</p>
+          <DialogHeader><DialogTitle className="font-display">Imágenes de Apoyo — {selectedProduct?.title}</DialogTitle></DialogHeader>
+          <div className="bg-primary/5 border border-border/60 rounded-lg p-3 mb-2">
+            <p className="text-xs text-muted-foreground">📌 La portada se asigna automáticamente desde <span className="font-medium text-primary">"Portadas Diarias"</span> según la categoría del producto y el día actual.</p>
+          </div>
+          <p className="text-xs text-muted-foreground">Sube hasta 9 imágenes fijas de apoyo que acompañarán cada publicación.</p>
           <div className="grid grid-cols-5 gap-3 py-2">
-            {productImages.map((img) => (
-              <div key={img.id} className={`relative group rounded-lg overflow-hidden border-2 aspect-square ${img.is_cover ? "border-primary" : "border-border/60"}`}>
+            {productImages.filter((img) => !img.is_cover).map((img, idx) => (
+              <div key={img.id} className="relative group rounded-lg overflow-hidden border-2 border-border/60 aspect-square">
                 <img src={img.image_url} alt="" className="w-full h-full object-cover" />
-                {img.is_cover && <div className="absolute top-1 left-1"><Badge className="text-[10px] px-1.5 py-0 bg-primary text-primary-foreground"><Star className="h-3 w-3 mr-0.5" />Portada</Badge></div>}
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
-                  {!img.is_cover && <Button size="icon" variant="ghost" className="h-7 w-7 text-white hover:text-primary" onClick={() => setCover(img.id)}><Star className="h-4 w-4" /></Button>}
+                <div className="absolute top-1 left-1">
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-background/80">#{idx + 1}</Badge>
+                </div>
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                   <Button size="icon" variant="ghost" className="h-7 w-7 text-white hover:text-destructive" onClick={() => removeImage(img)}><X className="h-4 w-4" /></Button>
                 </div>
               </div>
             ))}
-            {productImages.length < 9 && (
+            {productImages.filter((img) => !img.is_cover).length < 9 && (
               <button onClick={() => imageInputRef.current?.click()} className="border-2 border-dashed border-border rounded-lg aspect-square flex flex-col items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors">
                 {uploadingImages ? <Loader2 className="h-5 w-5 animate-spin" /> : <><ImagePlus className="h-5 w-5" /><span className="text-[10px] mt-1">Subir</span></>}
               </button>
