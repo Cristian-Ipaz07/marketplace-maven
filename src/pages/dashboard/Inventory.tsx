@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Upload, Search, Plus, Trash2, Loader2, Download, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 
