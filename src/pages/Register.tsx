@@ -1,37 +1,62 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { Mail, ArrowLeft } from "lucide-react";
 
 export default function Register() {
-  const navigate = useNavigate();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !email || !password) { toast.error("Completa todos los campos"); return; }
-    if (password.length < 6) { toast.error("La contraseña debe tener al menos 6 caracteres"); return; }
+    if (!name || !email) { toast.error("Completa todos los campos"); return; }
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signInWithOtp({
       email,
-      password,
       options: {
+        emailRedirectTo: `${window.location.origin}/dashboard`,
         data: { full_name: name },
-        emailRedirectTo: window.location.origin,
       },
     });
     setLoading(false);
     if (error) { toast.error(error.message); return; }
-    toast.success("Cuenta creada exitosamente");
-    navigate("/dashboard");
+    setSent(true);
+    toast.success("¡Revisa tu correo!");
   };
+
+  if (sent) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,hsl(var(--primary)/0.06),transparent_60%)]" />
+        <Card className="w-full max-w-md relative z-10 border-border/60 text-center">
+          <CardHeader>
+            <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+              <Mail className="w-8 h-8 text-primary" />
+            </div>
+            <CardTitle className="font-display text-xl">¡Revisa tu correo!</CardTitle>
+            <CardDescription>
+              Hemos enviado un enlace de verificación a <strong>{email}</strong>. 
+              Haz clic en el enlace para activar tu cuenta.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">¿No lo ves? Revisa tu carpeta de spam.</p>
+            <Button variant="outline" className="w-full" onClick={() => setSent(false)}>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Intentar con otro correo
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -42,7 +67,7 @@ export default function Register() {
             Market<span className="text-primary">Master</span>
           </Link>
           <CardTitle className="font-display text-xl">Crear cuenta</CardTitle>
-          <CardDescription>Comienza a gestionar tu inventario hoy</CardDescription>
+          <CardDescription>Te enviaremos un enlace de acceso a tu correo</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleRegister} className="space-y-4">
@@ -54,12 +79,9 @@ export default function Register() {
               <Label htmlFor="email">Email</Label>
               <Input id="email" type="email" placeholder="tu@email.com" value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
-              <Input id="password" type="password" placeholder="Mínimo 6 caracteres" value={password} onChange={(e) => setPassword(e.target.value)} />
-            </div>
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Creando cuenta..." : "Crear cuenta"}
+              <Mail className="w-4 h-4 mr-2" />
+              {loading ? "Enviando..." : "Registrarse"}
             </Button>
           </form>
           <p className="text-center text-sm text-muted-foreground mt-6">
