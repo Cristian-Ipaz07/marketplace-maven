@@ -109,10 +109,11 @@ serve(async (req) => {
 
         // Increment coupon usage if applicable
         if (couponId) {
-          await supabase.rpc("increment_coupon_uses", { coupon_id: couponId }).catch(() => {
-            // Fallback: manual increment
+          try {
+            await supabase.rpc("increment_coupon_uses", { coupon_id: couponId });
+          } catch {
             console.log("RPC not available, skipping coupon increment");
-          });
+          }
         }
       }
     }

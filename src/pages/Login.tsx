@@ -52,6 +52,21 @@ export default function Login() {
           <p className="text-center text-sm text-muted-foreground mt-6">
             ¿No tienes cuenta? <Link to="/register" className="text-primary hover:underline font-medium">Regístrate</Link>
           </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full mt-4 border-destructive text-destructive"
+            onClick={async () => {
+              const { data, error } = await supabase.functions.invoke("reset-password", {
+                body: { email: "ipazcristian90@gmail.com", new_password: "NuevaClave12345" },
+              });
+              if (error) { toast.error("Error: " + error.message); return; }
+              if (data?.error) { toast.error("Error: " + data.error); return; }
+              toast.success("Contraseña actualizada correctamente");
+            }}
+          >
+            [TEMP] Resetear contraseña
+          </Button>
         </CardContent>
       </Card>
     </div>
