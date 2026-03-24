@@ -1,73 +1,41 @@
-# Welcome to your Lovable project
+# 🤖 MarketMaster - Marketplace Automation Engine
 
-## Project info
+<p align="center">
+  <img src="https://img.shields.io/badge/Status-En%20Desarrollo-orange?style=for-the-badge" alt="Status">
+  <img src="https://img.shields.io/badge/Focus-Automation%20%26%20Growth-blueviolet?style=for-the-badge" alt="Focus">
+</p>
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## 📌 Visión General
+MarketMaster nace para resolver el **cuello de botella operativo** en el comercio social. Este bot automatiza la publicación y gestión de inventario en Facebook Marketplace, permitiendo escalar la presencia digital sin aumentar las horas de trabajo manual.
 
-## How can I edit this code?
+## 🚀 Capacidades Técnicas (Core)
+- **Data Injection:** Estructura preparada para el volcado masivo de productos (REF, descripción, precio).
+- **UI de Alto Rendimiento:** Dashboard construido con **Vite + React** para una gestión de catálogo ultrarrápida.
+- **Arquitectura Escalable:** Tipado estricto con **TypeScript** para asegurar la integridad de los datos de inventario.
 
-There are several ways of editing your application.
+## 🛠️ Stack Tecnológico
+| Componente | Tecnología |
+| :--- | :--- |
+| **Framework** | React (Vite) |
+| **Lenguaje** | TypeScript |
+| **Estilos** | Tailwind CSS + shadcn/ui |
+| **Estado** | Lucide Icons & Componentes Modulares |
 
-**Use Lovable**
+## 🗺️ Roadmap de Desarrollo
+- [x] **Fase 1:** Diseño de interfaz de gestión de productos y assets.
+- [ ] **Fase 2:** Conversión a **Chrome Extension** para interacción directa con el DOM de Facebook.
+- [ ] **Fase 3:** Integración con **Supabase** para persistencia de datos y analíticas de publicación.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+---
+## 👨‍💻 Autor
+**Cristian Ipaz**
+*Estudiante de Ingeniería de Sistemas - UNAD*
+*Especialista en Automatización de Procesos de Negocio*
 
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+---
+### ⚡ Instalación Rápida
+```bash
+git clone [https://github.com/tu-usuario/marketmaster.git](https://github.com/tu-usuario/marketmaster.git)
+cd marketmaster
+npm install
 npm run dev
-```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
