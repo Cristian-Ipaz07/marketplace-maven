@@ -2,40 +2,39 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Status-En%20Desarrollo-orange?style=for-the-badge" alt="Status">
+  <img src="https://img.shields.io/badge/Vercel-Deploy-black?style=for-the-badge&logo=vercel" alt="Deploy">
   <img src="https://img.shields.io/badge/Focus-Automation%20%26%20Growth-blueviolet?style=for-the-badge" alt="Focus">
 </p>
 
+## 🌐 Live Demo
+Puedes ver la interfaz del proyecto en vivo aquí:
+👉 **[https://marketmaster-bot.vercel.app/](https://marketmaster-bot.vercel.app/)**
+
+---
+
 ## 📌 Visión General
-MarketMaster nace para resolver el **cuello de botella operativo** en el comercio social. Este bot automatiza la publicación y gestión de inventario en Facebook Marketplace, permitiendo escalar la presencia digital sin aumentar las horas de trabajo manual.
+MarketMaster resuelve el **cuello de botella operativo** en el comercio social. Este motor de automatización gestiona el inventario y facilita la publicación en Facebook Marketplace, escalando la presencia digital de negocios de retail como **Estilo Nórdico**.
 
 ## 🚀 Capacidades Técnicas (Core)
-- **Data Injection:** Estructura preparada para el volcado masivo de productos (REF, descripción, precio).
-- **UI de Alto Rendimiento:** Dashboard construido con **Vite + React** para una gestión de catálogo ultrarrápida.
-- **Arquitectura Escalable:** Tipado estricto con **TypeScript** para asegurar la integridad de los datos de inventario.
+- **Data Injection:** Preparado para el volcado masivo de productos (REF, descripción, precio).
+- **Arquitectura de Persistencia:** Gestión de base de datos relacional y migraciones con **Supabase**.
+- **UI Profesional:** Dashboard construido con **Vite + React** y **shadcn/ui** para una experiencia de usuario fluida.
 
 ## 🛠️ Stack Tecnológico
 | Componente | Tecnología |
 | :--- | :--- |
-| **Framework** | React (Vite) |
+| **Frontend** | React (Vite) |
+| **Backend / DB** | Supabase |
 | **Lenguaje** | TypeScript |
 | **Estilos** | Tailwind CSS + shadcn/ui |
-| **Estado** | Lucide Icons & Componentes Modulares |
 
 ## 🗺️ Roadmap de Desarrollo
-- [x] **Fase 1:** Diseño de interfaz de gestión de productos y assets.
-- [ ] **Fase 2:** Conversión a **Chrome Extension** para interacción directa con el DOM de Facebook.
-- [ ] **Fase 3:** Integración con **Supabase** para persistencia de datos y analíticas de publicación.
+- [x] **Fase 1:** Diseño de interfaz y lógica de gestión de catálogos.
+- [x] **Fase 2:** Integración con **Supabase** para persistencia de datos.
+- [ ] **Fase 3:** Conversión a **Chrome Extension** para interacción directa con el DOM.
 
 ---
 ## 👨‍💻 Autor
 **Cristian Ipaz**
 *Estudiante de Ingeniería de Sistemas - UNAD*
-*Especialista en Automatización de Procesos de Negocio*
-
----
-### ⚡ Instalación Rápida
-```bash
-git clone [https://github.com/tu-usuario/marketmaster.git](https://github.com/tu-usuario/marketmaster.git)
-cd marketmaster
-npm install
-npm run dev
+*CEO & Lead Developer en Estilo Nórdico*
