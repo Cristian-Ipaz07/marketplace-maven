@@ -65,7 +65,7 @@ export default function Login() {
             Market<span className="text-primary">Master</span>
           </Link>
           <CardTitle className="font-display text-xl">Iniciar sesión</CardTitle>
-          <CardDescription>Te enviaremos un enlace de acceso a tu correo</CardDescription>
+          <CardDescription>Ingresa tu correo para recibir un enlace mágico</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
@@ -75,7 +75,7 @@ export default function Login() {
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
               <Mail className="w-4 h-4 mr-2" />
-              {loading ? "Enviando..." : "Enviar enlace de acceso"}
+              {loading ? "Enviando..." : "Iniciar sesión"}
             </Button>
           </form>
           <p className="text-center text-sm text-muted-foreground mt-6">

@@ -67,7 +67,7 @@ export default function Register() {
             Market<span className="text-primary">Master</span>
           </Link>
           <CardTitle className="font-display text-xl">Crear cuenta</CardTitle>
-          <CardDescription>Te enviaremos un enlace de acceso a tu correo</CardDescription>
+          <CardDescription>Crea tu cuenta para comenzar</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleRegister} className="space-y-4">
