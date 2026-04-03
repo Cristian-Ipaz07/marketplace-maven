@@ -65,7 +65,7 @@ export default function Login() {
             Market<span className="text-primary">Master</span>
           </Link>
           <CardTitle className="font-display text-xl">Iniciar sesión</CardTitle>
-          <CardDescription>Te enviaremos un enlace de acceso a tu correo</CardDescription>
+          <CardDescription>Ingresa tu correo para recibir un enlace mágico</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
