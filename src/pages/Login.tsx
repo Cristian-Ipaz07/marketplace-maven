@@ -75,7 +75,7 @@ export default function Login() {
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
               <Mail className="w-4 h-4 mr-2" />
-              {loading ? "Enviando..." : "Enviar enlace de acceso"}
+              {loading ? "Enviando..." : "Iniciar sesión"}
             </Button>
           </form>
           <p className="text-center text-sm text-muted-foreground mt-6">
