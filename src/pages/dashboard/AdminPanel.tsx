@@ -80,62 +80,9 @@ export default function AdminPanel() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Consulta 1: perfiles planos (sin ningún join)
-      const { data: profilesData, error: profilesError } = await supabase
-        .from("profiles")
-        .select("user_id, created_at, display_name, email");
-
-      if (profilesError) {
-        console.error("Supabase Profiles Error:", profilesError);
-        throw new Error(profilesError.message);
-      }
-
-      // Consulta 2: todas las suscripciones (sin join)
-      const { data: subsData, error: subsError } = await supabase
-        .from("subscriptions")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (subsError) {
-        console.error("Supabase Subscriptions Error:", subsError);
-        throw new Error(subsError.message);
-      }
-
-      // Consulta 3: todos los roles (sin join)
-      const { data: rolesData, error: rolesError } = await supabase
-        .from("user_roles")
-        .select("user_id, role");
-
-      if (rolesError) {
-        console.error("Supabase Roles Error:", rolesError);
-        // No lanzamos error aquí — los roles no son críticos
-      }
-
-      // Mapa: user_id → suscripción (activa tiene prioridad)
-      const subsMap: Record<string, any> = {};
-      for (const sub of subsData || []) {
-        const uid = sub.user_id;
-        if (!subsMap[uid] || sub.active) {
-          subsMap[uid] = sub;
-        }
-      }
-
-      // Mapa: user_id → string[]
-      const rolesMap: Record<string, string[]> = {};
-      for (const r of rolesData || []) {
-        if (!rolesMap[r.user_id]) rolesMap[r.user_id] = [];
-        rolesMap[r.user_id].push(r.role);
-      }
-
-      const enrichedUsers: EnrichedUser[] = (profilesData || []).map((p: any) => ({
-        id: p.user_id,
-        email: p.email || "Sin email",
-        created_at: p.created_at,
-        profile: { display_name: p.display_name },
-        subscription: subsMap[p.user_id] || null,
-        roles: rolesMap[p.user_id] || [],
-      }));
-      setUsers(enrichedUsers);
+      // Usamos la Edge Function admin-users que tiene service_role y acceso a auth.users
+      const enrichedUsers = await callAdmin({ action: "list_users" });
+      setUsers(enrichedUsers as EnrichedUser[]);
 
       const { data: couponData } = await supabase
         .from("coupons")
