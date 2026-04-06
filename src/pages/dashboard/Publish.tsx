@@ -9,6 +9,7 @@ import { Rocket, Loader2, CalendarDays, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { Play } from "lucide-react";
 
 const categories = ["Ropa", "Accesorios", "Calzado", "Electrónica", "Hogar", "Deportes"];
 const conditions = ["Nuevo", "Usado - Como nuevo", "Usado - Buen estado"];
@@ -103,11 +104,100 @@ export default function Publish() {
     toast.success(`Configuración guardada: ${quantity} publicaciones con ${catLabel}`);
   };
 
+  const handleTestPublish = async () => {
+    // Permisos Admin: Bypass de suscripción para Alexander Ipaz
+    const isAlexanderAdmin = user?.user_metadata?.full_name?.includes("Alexander Ipaz") || user?.email?.includes("ipaz");
+    if (!isAlexanderAdmin) {
+      toast.error("Suscripción requerida para publicar.");
+      return;
+    }
+
+    toast.loading("Buscando producto y portadas...", { id: "test-publish" });
+    const today = dayNames[new Date().getDay()];
+    
+    // 1. Obtener el producto de prueba
+    const { data: product, error: productError } = await supabase
+      .from("products")
+      .select("id, title, price, description, condition, category, location, tags")
+      .eq("title", "⚡ PERFUME TEMPTATION – El Aroma de la Seducción Irresistible ⚡")
+      .limit(1)
+      .single();
+
+    if (productError || !product) {
+      toast.error("No se encontró el perfume especificado.", { id: "test-publish" });
+      return;
+    }
+
+    // 2. Obtener imágenes de galería del producto (relleno, sin portadas)
+    const { data: galleryImages } = await supabase
+      .from("product_images")
+      .select("image_url")
+      .eq("product_id", product.id)
+      .eq("is_cover", false)
+      .order("position");
+
+    // 3. Obtener portadas del día actual para la categoría del producto
+    const { data: covers } = await supabase
+      .from("daily_covers")
+      .select("id, image_url, position")
+      .eq("day_of_week", today)
+      .eq("category", product.category)
+      .order("position");
+
+    if (!covers || covers.length === 0) {
+      toast.error(`No hay portadas subidas para hoy (${today}) en la categoría "${product.category}". Ve a Portadas Diarias para agregarlas.`, { id: "test-publish" });
+      return;
+    }
+
+    toast.success(`Producto: ${product.title}. ${covers.length} portadas encontradas. Enviando...`, { id: "test-publish" });
+
+    // 4. Construir el producto formateado CON imágenes separadas
+    const formattedProduct = {
+      title: product.title,
+      price: parseInt(product.price) || 0,
+      description: product.description || "",
+      condition: product.condition || "Nuevo",
+      category: product.category || "Hogar",
+      location: product.location || "",
+      tags: product.tags ? (product.tags as string).split(",").map((t: string) => t.trim()).filter(Boolean) : [],
+      // Portadas: array de URLs (una por ciclo de publicación)
+      coverImages: covers.map((c: any) => c.image_url),
+      // Galería: fotos de relleno que siempre acompañan a cada publicación
+      galleryImages: (galleryImages || []).map((g: any) => g.image_url),
+    };
+
+    // 5. Construir AutomationTask completa con config
+    const activeOptions = Object.entries(options).filter(([, v]) => v).map(([k]) => k);
+    const automationTask = {
+      product: formattedProduct,
+      config: {
+        quantity: covers.length, // Límite duro = número de portadas disponibles hoy
+        options: activeOptions,
+        useProductCategory,
+        selectedCategories: useProductCategory ? [] : selectedCategories,
+        manualPublish: true, // El bot NO publica; espera que el usuario lo haga manualmente
+      },
+      currentIndex: 0
+    };
+
+    console.log("[MarketMaster] Enviando AutomationTask a extensión:", automationTask);
+
+    // 6. Disparar evento a la extensión
+    const event = new CustomEvent('MARKETMASTER_START_AUTO_FILL', { detail: automationTask });
+    window.dispatchEvent(event);
+  };
+
   return (
     <div className="p-8 max-w-3xl">
-      <div className="mb-6">
-        <h1 className="font-display text-2xl font-bold text-foreground">Configurar publicación</h1>
-        <p className="text-muted-foreground text-sm mt-1">Define los parámetros de tus publicaciones</p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-foreground">Configurar publicación</h1>
+          <p className="text-muted-foreground text-sm mt-1">Define los parámetros de tus publicaciones</p>
+        </div>
+        <Button variant="secondary" onClick={handleTestPublish} className="bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border border-amber-500/20">
+          <Play className="h-4 w-4 mr-2" />
+          Probar Extensión (Perfume)
+        </Button>
       </div>
 
       <div className="space-y-6">

@@ -1,0 +1,6 @@
+- [x] Crear la carpeta `extension` en `marketplace-maven`.
+- [x] Adaptar `manifest.json`.
+- [x] Copiar y limpiar `background.js` (solo proxy de imágenes).
+- [x] Copiar `automation.js` y dependencias.
+- [x] Construir un bridge (`content_script_bridge.js`) para escuchar mensajes `postMessage` desde la SaaS.
+- [x] Conectar la UI para leer de Supabase y enviar el producto de Estilo Nórdico al puente.

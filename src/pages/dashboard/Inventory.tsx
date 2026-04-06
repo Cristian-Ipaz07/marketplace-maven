@@ -33,9 +33,40 @@ interface ProductImage {
 }
 
 const conditions = ["Nuevo", "Usado - Como nuevo", "Usado - Buen estado"];
-const categories = ["General", "Ropa", "Accesorios", "Calzado", "Electrónica", "Hogar", "Deportes"];
 
-const emptyProduct = { title: "", price: "", description: "", tags: "", category: "General", location: "", condition: "Nuevo" };
+// CATEGORÍAS EXACTAS DE FACEBOOK MARKETPLACE (Español)
+// Estos nombres deben coincidir EXACTAMENTE con lo que muestra Facebook
+const categories = [
+  "Hogar",
+  "Jardinería",
+  "Muebles",
+  "Electrodomésticos",
+  "Salud y belleza",
+  "Ropa y accesorios",
+  "Bolsos y equipaje",
+  "Ropa y calzado de mujer",
+  "Ropa y calzado de hombre",
+  "Joyas y accesorios",
+  "Eletrónica e informática",
+  "Teléfonos celulares",
+  "Videojuegos",
+  "Libros, películas y música",
+  "Deportes y actividades al aire libre",
+  "Bicicletas",
+  "Juguetes y juegos",
+  "Bebés y niños",
+  "Productos para mascotas",
+  "Arte y manualidades",
+  "Instrumentos musicales",
+  "Antigüedades y artículos de colección",
+  "Herramientas",
+  "Autopartes",
+  "Pasatiempos",
+  "Clasificados",
+  "Varios",
+];
+
+const emptyProduct = { title: "", price: "", description: "", tags: "", category: "Hogar", location: "", condition: "Nuevo" };
 
 export default function Inventory() {
   const { user } = useAuth();

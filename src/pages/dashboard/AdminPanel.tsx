@@ -80,11 +80,35 @@ export default function AdminPanel() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const usersData = await callAdmin({ action: "list_users" });
-      setUsers(usersData || []);
+      // Optimizamos: Consultamos profiles con sus suscripciones y roles en una sola petición
+      const { data: profilesData, error: profilesError } = await supabase
+        .from("profiles")
+        .select(`
+          id:user_id,
+          created_at,
+          display_name,
+          email,
+          subscriptions(*),
+          user_roles(role)
+        `);
+
+      if (profilesError) throw profilesError;
+
+      const enrichedUsers: EnrichedUser[] = (profilesData || []).map((p: any) => ({
+        id: p.id,
+        email: p.email || "Sin email",
+        created_at: p.created_at,
+        profile: { display_name: p.display_name },
+        subscription: p.subscriptions?.find((s: any) => s.active) || p.subscriptions?.[0] || null,
+        roles: p.user_roles?.map((r: any) => r.role) || [],
+      }));
+
+      setUsers(enrichedUsers);
     } catch (e: any) {
+      console.error("Admin Load Error:", e);
       toast.error("Error cargando usuarios: " + e.message);
     }
+
     const { data: couponData } = await supabase.from("coupons").select("*").order("created_at", { ascending: false });
     setCoupons((couponData || []) as Coupon[]);
     setLoading(false);

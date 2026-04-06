@@ -26,3 +26,6 @@ dist-ssr
 
 # Mis archivos privados / en desarrollo
 bot_marketplace/
+
+# Extensión privada de MarketMaster
+extension/
