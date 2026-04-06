@@ -207,7 +207,7 @@ export default function Publish() {
           className="bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border border-amber-500/20"
         >
           <Play className="h-4 w-4 mr-2" />
-          Probar Extensión (Perfume)
+          Probar Extensión
         </Button>
       </div>
 

@@ -15,37 +15,67 @@ export interface SubscriptionData {
   coupon_id: string | null;
 }
 
+function daysUntil(dateStr: string | null): number | null {
+  if (!dateStr) return null;
+  return Math.max(0, Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86_400_000));
+}
+
+function isDatePast(dateStr: string | null): boolean {
+  if (!dateStr) return false;
+  return new Date(dateStr) < new Date();
+}
+
 export function useSubscription() {
   const { user } = useAuth();
   const [sub, setSub] = useState<SubscriptionData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchSub = async () => {
     if (!user) return;
-    supabase
+    const { data } = await supabase
       .from("subscriptions")
       .select("*")
       .eq("user_id", user.id)
       .eq("active", true)
-      .limit(1)
-      .then(({ data }) => {
-        if (data && data.length > 0) setSub(data[0] as any);
-        setLoading(false);
-      });
+      .limit(1);
+    if (data && data.length > 0) setSub(data[0] as SubscriptionData);
+    else setSub(null);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    fetchSub();
+
+    // Escuchar cambios en tiempo real (cuando admin actualiza el plan)
+    const channel = supabase
+      .channel("sub-changes")
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "subscriptions",
+        filter: `user_id=eq.${user.id}`,
+      }, () => fetchSub())
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [user]);
 
-  const isExpired = sub?.expires_at ? new Date(sub.expires_at) < new Date() : false;
-  const isTrialExpired = sub?.is_trial && sub?.trial_ends_at ? new Date(sub.trial_ends_at) < new Date() : false;
-  const trialDaysLeft = sub?.is_trial && sub?.trial_ends_at
-    ? Math.max(0, Math.ceil((new Date(sub.trial_ends_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
-    : null;
+  // Lógica de expiración según tipo de suscripción
+  const isTrialExpired = sub?.is_trial ? isDatePast(sub.trial_ends_at) : false;
+  const isPaidExpired  = !sub?.is_trial ? isDatePast(sub?.expires_at ?? null) : false;
+  const isExpired = isTrialExpired || isPaidExpired;
 
-  return { sub, loading, isExpired: isExpired || isTrialExpired, trialDaysLeft, refresh: () => {
-    if (!user) return;
-    setLoading(true);
-    supabase.from("subscriptions").select("*").eq("user_id", user.id).eq("active", true).limit(1).then(({ data }) => {
-      if (data && data.length > 0) setSub(data[0] as any);
-      setLoading(false);
-    });
-  }};
+  // Días restantes
+  const trialDaysLeft = sub?.is_trial ? daysUntil(sub.trial_ends_at) : null;
+  const paidDaysLeft  = !sub?.is_trial ? daysUntil(sub?.expires_at ?? null) : null;
+
+  return {
+    sub,
+    loading,
+    isExpired,
+    trialDaysLeft,
+    paidDaysLeft,
+    refresh: fetchSub,
+  };
 }

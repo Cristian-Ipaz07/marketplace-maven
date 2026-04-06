@@ -2,12 +2,26 @@ import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Play, Pause, RotateCcw, CheckCircle2, ImageIcon, AlertTriangle, ListChecks, Lock } from "lucide-react";
+import { 
+  Play, 
+  Pause, 
+  RotateCcw, 
+  ListChecks, 
+  CheckCircle2, 
+  Image as ImageIcon, 
+  AlertTriangle, 
+  ArrowRight, 
+  Loader2,
+  Lock
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSubscription } from "@/hooks/useSubscription";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
+import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
+
 interface Product {
   id: string;
   title: string;
@@ -165,34 +179,98 @@ export default function PublishPreview() {
   const limitReached = dailyLimit < 9999 && remaining <= 0;
   const blocked = limitReached || subExpired;
 
+  useEffect(() => {
+    if (!user) return;
+    
+    // Escuchar logs en tiempo real para actualizar progreso
+    const channel = supabase
+      .channel("public-logs")
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "publication_logs",
+        filter: `user_id=eq.${user.id}`,
+      }, (payload) => {
+        if (payload.new.status === 'success') {
+          setCompletedCount(prev => prev + 1);
+          setTodayPublished(prev => prev + 1);
+          // Actualizar ejecución en DB
+          if (execId) {
+            supabase.from("campaign_executions")
+              .update({ completed_count: completedCount + 1 })
+              .eq("id", execId)
+              .then(() => {});
+          }
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [user, execId, completedCount]);
+
+  const dispatchToExtension = (startIdx: number) => {
+    const automationTask = {
+      items: items.map(it => ({
+        product: {
+          id: it.product.id,
+          title: it.product.title,
+          price: parseInt(it.product.price) || 0,
+          description: (it.product as any).description || "",
+          category: it.product.category || "Hogar",
+          condition: (it.product as any).condition || "Nuevo",
+          location: (it.product as any).location || "",
+          tags: (it.product as any).tags ? (it.product as any).tags.split(",").map((t: string) => t.trim()).filter(Boolean) : []
+        },
+        cover: { id: it.cover.id, image_url: it.cover.image_url },
+        gallery: it.gallery.map(g => ({ image_url: g.image_url }))
+      })),
+      config: {
+        manualPublish: true, // Siempre manual por ahora según petición del usuario
+        options: ["public_place"] // Opciones por defecto, se podrían cargar de publish_configs
+      },
+      currentIndex: startIdx
+    };
+
+    const event = new CustomEvent('MARKETMASTER_START_AUTO_FILL', { detail: automationTask });
+    window.dispatchEvent(event);
+  };
+
   const handleStart = async () => {
     if (!user || blocked) return;
     const total = Math.min(items.length, remaining);
     const payload = { user_id: user.id, day_of_week: todayKey, total_publications: total, completed_count: 0, status: "running", started_at: new Date().toISOString() };
 
+    let currentExecId = execId;
     if (execId) {
       await supabase.from("campaign_executions").update({ ...payload, status: "running" }).eq("id", execId);
     } else {
       const { data } = await supabase.from("campaign_executions").insert(payload).select("id").single();
-      if (data) setExecId(data.id);
+      if (data) {
+        setExecId(data.id);
+        currentExecId = data.id;
+      }
     }
     setExecStatus("running");
     setCompletedCount(0);
-    toast.success(`¡Campaña iniciada! ${total} publicaciones programadas.`);
+    
+    dispatchToExtension(0);
+    toast.success(`¡Campaña iniciada! La extensión comenzará el llenado.`);
   };
 
   const handlePause = async () => {
     if (!execId) return;
     await supabase.from("campaign_executions").update({ status: "paused", paused_at: new Date().toISOString() }).eq("id", execId);
     setExecStatus("paused");
-    toast.info(`Campaña pausada en publicación ${completedCount}. Al reanudar continuará desde la ${completedCount + 1}.`);
+    toast.info(`Campaña pausada en #${completedCount}.`);
   };
 
   const handleResume = async () => {
     if (!execId) return;
     await supabase.from("campaign_executions").update({ status: "running", paused_at: null }).eq("id", execId);
     setExecStatus("running");
-    toast.success(`Campaña reanudada desde publicación ${completedCount + 1}.`);
+    
+    dispatchToExtension(completedCount);
+    toast.success(`Campaña reanudada desde #${completedCount + 1}.`);
   };
 
   const handleReset = async () => {
@@ -323,24 +401,46 @@ export default function PublishPreview() {
       <div className="space-y-3">
         {items.map((item) => {
           const isCompleted = item.publicationIndex < completedCount || item.logged;
+          const isRunning = execStatus === "running" && item.publicationIndex === completedCount;
+          
           return (
-            <Card key={`${item.cover.id}-${item.publicationIndex}`} className={`border-border/60 transition-opacity ${isCompleted ? "opacity-50" : ""}`}>
+            <Card 
+              key={`${item.cover.id}-${item.publicationIndex}`} 
+              className={cn(
+                "border-border/60 transition-all duration-300",
+                isCompleted ? "opacity-60 bg-muted/30" : "",
+                isRunning ? "border-primary ring-1 ring-primary/20 shadow-md translate-x-1" : ""
+              )}
+            >
               <CardContent className="p-4">
                 <div className="flex items-start gap-4">
-                  <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isCompleted ? "bg-accent/20" : "bg-primary/10"}`}>
+                  <div className={cn(
+                    "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                    isCompleted ? "bg-accent/20" : isRunning ? "bg-primary animate-pulse" : "bg-primary/10"
+                  )}>
                     {isCompleted ? (
                       <CheckCircle2 className="h-4 w-4 text-accent" />
+                    ) : isRunning ? (
+                      <Loader2 className="h-4 w-4 text-primary-foreground animate-spin" />
                     ) : (
                       <span className="text-xs font-bold text-primary">#{item.publicationIndex + 1}</span>
                     )}
                   </div>
 
-                  <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 border-primary/30 bg-muted">
+                  <div className={cn(
+                    "flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 bg-muted transition-colors",
+                    isRunning ? "border-primary shadow-sm" : "border-primary/30"
+                  )}>
                     <img src={item.cover.image_url} alt="Portada" className="w-full h-full object-cover" />
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-foreground text-sm">{item.product.title}</p>
+                    <div className="flex items-center gap-2">
+                      <p className={cn("font-medium text-sm truncate", isCompleted ? "text-muted-foreground line-through" : "text-foreground")}>
+                        {item.product.title}
+                      </p>
+                      {isRunning && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 animate-pulse bg-primary/10 text-primary border-primary/20">Publicando</Badge>}
+                    </div>
                     <p className="text-xs text-muted-foreground">${item.product.price} · {item.product.category || "General"}</p>
                   </div>
 

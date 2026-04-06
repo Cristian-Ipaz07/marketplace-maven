@@ -10,3 +10,11 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     autoRefreshToken: true,
   },
 });
+
+// Guardar para que la extensión pueda leerlos desde el mundo aislado (Isolated World)
+if (typeof window !== "undefined") {
+  localStorage.setItem("__MM_SUPABASE_URL", SUPABASE_URL);
+  localStorage.setItem("__MM_SUPABASE_KEY", SUPABASE_ANON_KEY);
+  (window as any).__SUPABASE_URL__ = SUPABASE_URL;
+  (window as any).__SUPABASE_ANON_KEY__ = SUPABASE_ANON_KEY;
+}

@@ -80,15 +80,51 @@ export default function AdminPanel() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Usamos la Edge Function admin-users que tiene service_role y acceso a auth.users
-      const enrichedUsers = await callAdmin({ action: "list_users" });
-      setUsers(enrichedUsers as EnrichedUser[]);
+      // 3 consultas planas en paralelo — sin joins, sin columnas inexistentes
+      const [profilesResult, subsResult, rolesResult, couponResult] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("user_id, display_name, avatar_url, created_at"),
+        supabase
+          .from("subscriptions")
+          .select("id, user_id, plan, daily_limit, price, is_trial, trial_ends_at, expires_at, active, created_at")
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("user_roles")
+          .select("user_id, role"),
+        supabase
+          .from("coupons")
+          .select("*")
+          .order("created_at", { ascending: false }),
+      ]);
 
-      const { data: couponData } = await supabase
-        .from("coupons")
-        .select("*")
-        .order("created_at", { ascending: false });
-      setCoupons((couponData || []) as Coupon[]);
+      if (profilesResult.error) throw new Error("Perfiles: " + profilesResult.error.message);
+
+      // Mapa user_id → suscripción activa (o la más reciente)
+      const subsMap: Record<string, any> = {};
+      for (const sub of subsResult.data || []) {
+        if (!subsMap[sub.user_id] || sub.active) subsMap[sub.user_id] = sub;
+      }
+
+      // Mapa user_id → roles[]
+      const rolesMap: Record<string, string[]> = {};
+      for (const r of rolesResult.data || []) {
+        if (!rolesMap[r.user_id]) rolesMap[r.user_id] = [];
+        rolesMap[r.user_id].push(r.role);
+      }
+
+      // display_name en el trigger se setea como el email del usuario
+      const enriched: EnrichedUser[] = (profilesResult.data || []).map((p: any) => ({
+        id: p.user_id,
+        email: p.display_name || "Sin identificador",
+        created_at: p.created_at,
+        profile: { display_name: p.display_name },
+        subscription: subsMap[p.user_id] || null,
+        roles: rolesMap[p.user_id] || [],
+      }));
+
+      setUsers(enriched);
+      setCoupons((couponResult.data || []) as Coupon[]);
     } catch (e: any) {
       toast.error("Error al cargar datos: " + e.message);
     }
@@ -108,21 +144,37 @@ export default function AdminPanel() {
     setSaving(true);
     try {
       const config = planConfigs[editPlan];
-      await callAdmin({
-        action: "update_subscription",
-        user_id: editUser.id,
+      const updates = {
         plan: editPlan,
         daily_limit: config.daily_limit,
         price: config.price,
         is_trial: editIsTrial,
         trial_ends_at: editTrialEnds ? new Date(editTrialEnds).toISOString() : null,
         expires_at: editExpires ? new Date(editExpires).toISOString() : null,
-      });
+        active: true,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (editUser.subscription?.id) {
+        // Actualizar suscripción existente
+        const { error } = await supabase
+          .from("subscriptions")
+          .update(updates)
+          .eq("id", editUser.subscription.id);
+        if (error) throw new Error(error.message);
+      } else {
+        // Crear suscripción nueva
+        const { error } = await supabase
+          .from("subscriptions")
+          .insert({ ...updates, user_id: editUser.id });
+        if (error) throw new Error(error.message);
+      }
+
       toast.success("Plan actualizado");
       setEditUser(null);
       loadData();
     } catch (e: any) {
-      toast.error("Error: " + e.message);
+      toast.error("Error al guardar: " + e.message);
     }
     setSaving(false);
   };
@@ -130,7 +182,19 @@ export default function AdminPanel() {
   const toggleAdmin = async (u: EnrichedUser) => {
     const isAdmin = u.roles.includes("admin");
     try {
-      await callAdmin({ action: "set_admin", target_user_id: u.id, is_admin: !isAdmin });
+      if (isAdmin) {
+        const { error } = await supabase
+          .from("user_roles")
+          .delete()
+          .eq("user_id", u.id)
+          .eq("role", "admin");
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await supabase
+          .from("user_roles")
+          .upsert({ user_id: u.id, role: "admin" }, { onConflict: "user_id,role" });
+        if (error) throw new Error(error.message);
+      }
       toast.success(isAdmin ? "Admin removido" : "Admin asignado");
       loadData();
     } catch (e: any) {
