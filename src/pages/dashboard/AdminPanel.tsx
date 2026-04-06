@@ -80,17 +80,17 @@ export default function AdminPanel() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Consulta 1: perfiles con roles (sin join a subscriptions)
+      // Consulta 1: perfiles planos (sin ningún join)
       const { data: profilesData, error: profilesError } = await supabase
         .from("profiles")
-        .select("user_id, created_at, display_name, email, user_roles(role)");
+        .select("user_id, created_at, display_name, email");
 
       if (profilesError) {
         console.error("Supabase Profiles Error:", profilesError);
         throw new Error(profilesError.message);
       }
 
-      // Consulta 2: todas las suscripciones activas (o la más reciente por usuario)
+      // Consulta 2: todas las suscripciones (sin join)
       const { data: subsData, error: subsError } = await supabase
         .from("subscriptions")
         .select("*")
@@ -101,16 +101,30 @@ export default function AdminPanel() {
         throw new Error(subsError.message);
       }
 
-      // Construimos un mapa user_id → suscripción (preferimos la activa)
+      // Consulta 3: todos los roles (sin join)
+      const { data: rolesData, error: rolesError } = await supabase
+        .from("user_roles")
+        .select("user_id, role");
+
+      if (rolesError) {
+        console.error("Supabase Roles Error:", rolesError);
+        // No lanzamos error aquí — los roles no son críticos
+      }
+
+      // Mapa: user_id → suscripción (activa tiene prioridad)
       const subsMap: Record<string, any> = {};
       for (const sub of subsData || []) {
         const uid = sub.user_id;
-        if (!subsMap[uid]) {
-          subsMap[uid] = sub; // primera (más reciente) como fallback
+        if (!subsMap[uid] || sub.active) {
+          subsMap[uid] = sub;
         }
-        if (sub.active) {
-          subsMap[uid] = sub; // activa tiene prioridad
-        }
+      }
+
+      // Mapa: user_id → string[]
+      const rolesMap: Record<string, string[]> = {};
+      for (const r of rolesData || []) {
+        if (!rolesMap[r.user_id]) rolesMap[r.user_id] = [];
+        rolesMap[r.user_id].push(r.role);
       }
 
       const enrichedUsers: EnrichedUser[] = (profilesData || []).map((p: any) => ({
@@ -119,7 +133,7 @@ export default function AdminPanel() {
         created_at: p.created_at,
         profile: { display_name: p.display_name },
         subscription: subsMap[p.user_id] || null,
-        roles: (p.user_roles || []).map((r: any) => r.role),
+        roles: rolesMap[p.user_id] || [],
       }));
       setUsers(enrichedUsers);
 
