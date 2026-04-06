@@ -13,7 +13,7 @@ Explora la interfaz operativa:
 ---
 
 ## 📌 Visión Estratégica
-MarketMaster es una solución de **automatización de última milla** diseñada para eliminar el cuello de botella en el comercio social. Centraliza la gestión de inventarios y optimiza el flujo de publicación en Facebook Marketplace, permitiendo a negocios de retail escalar su presencia digital sin aumentar la carga operativa manual.
+MarketMaster es una solución de **automatización de última milla** diseñada para eliminar el cuello de botella en el comercio social. Centraliza la gestión de inventarios y optimiza el flujo de publicación en Facebook Marketplace, permitiendo a negocios de retail escalar su presencia digital sin aumentar la carga operativa manual,
 
 ## 📈 Impacto de Negocio
 * **Optimización del Tiempo:** Reducción del **85% en el tiempo de publicación** de catálogos masivos.
