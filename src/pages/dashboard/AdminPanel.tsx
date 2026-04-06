@@ -80,38 +80,53 @@ export default function AdminPanel() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Cargamos usuarios consultando directamente las tablas de perfiles y suscripciones
+      // Consulta 1: perfiles con roles (sin join a subscriptions)
       const { data: profilesData, error: profilesError } = await supabase
         .from("profiles")
-        .select(`
-          user_id,
-          created_at,
-          display_name,
-          email,
-          subscriptions(*),
-          user_roles(role)
-        `);
+        .select("user_id, created_at, display_name, email, user_roles(role)");
 
       if (profilesError) {
-        console.error("Supabase Query Error:", profilesError);
+        console.error("Supabase Profiles Error:", profilesError);
         throw new Error(profilesError.message);
       }
 
-      if (!profilesData) {
-        setUsers([]);
-      } else {
-        const enrichedUsers: EnrichedUser[] = profilesData.map((p: any) => ({
-          id: p.user_id,
-          email: p.email || "Sin email",
-          created_at: p.created_at,
-          profile: { display_name: p.display_name },
-          subscription: (p.subscriptions || []).find((s: any) => s.active) || p.subscriptions?.[0] || null,
-          roles: (p.user_roles || []).map((r: any) => r.role),
-        }));
-        setUsers(enrichedUsers);
+      // Consulta 2: todas las suscripciones activas (o la más reciente por usuario)
+      const { data: subsData, error: subsError } = await supabase
+        .from("subscriptions")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (subsError) {
+        console.error("Supabase Subscriptions Error:", subsError);
+        throw new Error(subsError.message);
       }
 
-      const { data: couponData } = await supabase.from("coupons").select("*").order("created_at", { ascending: false });
+      // Construimos un mapa user_id → suscripción (preferimos la activa)
+      const subsMap: Record<string, any> = {};
+      for (const sub of subsData || []) {
+        const uid = sub.user_id;
+        if (!subsMap[uid]) {
+          subsMap[uid] = sub; // primera (más reciente) como fallback
+        }
+        if (sub.active) {
+          subsMap[uid] = sub; // activa tiene prioridad
+        }
+      }
+
+      const enrichedUsers: EnrichedUser[] = (profilesData || []).map((p: any) => ({
+        id: p.user_id,
+        email: p.email || "Sin email",
+        created_at: p.created_at,
+        profile: { display_name: p.display_name },
+        subscription: subsMap[p.user_id] || null,
+        roles: (p.user_roles || []).map((r: any) => r.role),
+      }));
+      setUsers(enrichedUsers);
+
+      const { data: couponData } = await supabase
+        .from("coupons")
+        .select("*")
+        .order("created_at", { ascending: false });
       setCoupons((couponData || []) as Coupon[]);
     } catch (e: any) {
       toast.error("Error al cargar datos: " + e.message);
