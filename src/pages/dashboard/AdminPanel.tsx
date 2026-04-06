@@ -80,11 +80,11 @@ export default function AdminPanel() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Optimizamos: Consultamos profiles con sus suscripciones y roles en una sola petición
+      // Cargamos usuarios consultando directamente las tablas de perfiles y suscripciones
       const { data: profilesData, error: profilesError } = await supabase
         .from("profiles")
         .select(`
-          id:user_id,
+          user_id,
           created_at,
           display_name,
           email,
@@ -92,25 +92,30 @@ export default function AdminPanel() {
           user_roles(role)
         `);
 
-      if (profilesError) throw profilesError;
+      if (profilesError) {
+        console.error("Supabase Query Error:", profilesError);
+        throw new Error(profilesError.message);
+      }
 
-      const enrichedUsers: EnrichedUser[] = (profilesData || []).map((p: any) => ({
-        id: p.id,
-        email: p.email || "Sin email",
-        created_at: p.created_at,
-        profile: { display_name: p.display_name },
-        subscription: p.subscriptions?.find((s: any) => s.active) || p.subscriptions?.[0] || null,
-        roles: p.user_roles?.map((r: any) => r.role) || [],
-      }));
+      if (!profilesData) {
+        setUsers([]);
+      } else {
+        const enrichedUsers: EnrichedUser[] = profilesData.map((p: any) => ({
+          id: p.user_id,
+          email: p.email || "Sin email",
+          created_at: p.created_at,
+          profile: { display_name: p.display_name },
+          subscription: (p.subscriptions || []).find((s: any) => s.active) || p.subscriptions?.[0] || null,
+          roles: (p.user_roles || []).map((r: any) => r.role),
+        }));
+        setUsers(enrichedUsers);
+      }
 
-      setUsers(enrichedUsers);
+      const { data: couponData } = await supabase.from("coupons").select("*").order("created_at", { ascending: false });
+      setCoupons((couponData || []) as Coupon[]);
     } catch (e: any) {
-      console.error("Admin Load Error:", e);
-      toast.error("Error cargando usuarios: " + e.message);
+      toast.error("Error al cargar datos: " + e.message);
     }
-
-    const { data: couponData } = await supabase.from("coupons").select("*").order("created_at", { ascending: false });
-    setCoupons((couponData || []) as Coupon[]);
     setLoading(false);
   };
 

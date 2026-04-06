@@ -5,11 +5,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Rocket, Loader2, CalendarDays, Sparkles } from "lucide-react";
+import { Rocket, Loader2, CalendarDays, Sparkles, AlertTriangle, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { Play } from "lucide-react";
+import { useSubscription } from "@/hooks/useSubscription";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
+import { Link } from "react-router-dom";
 
 const categories = ["Ropa", "Accesorios", "Calzado", "Electrónica", "Hogar", "Deportes"];
 const conditions = ["Nuevo", "Usado - Como nuevo", "Usado - Buen estado"];
@@ -24,6 +27,9 @@ const marketplaceOptions = [
 
 export default function Publish() {
   const { user } = useAuth();
+  const { sub, loading: loadingSub, isExpired } = useSubscription();
+  const { isAdmin, loading: loadingAdmin } = useIsAdmin();
+  
   const [quantity, setQuantity] = useState("10");
   const [useProductCategory, setUseProductCategory] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -104,11 +110,11 @@ export default function Publish() {
     toast.success(`Configuración guardada: ${quantity} publicaciones con ${catLabel}`);
   };
 
+  const hasAccess = isAdmin || (!loadingSub && sub && !isExpired);
+
   const handleTestPublish = async () => {
-    // Permisos Admin: Bypass de suscripción para Alexander Ipaz
-    const isAlexanderAdmin = user?.user_metadata?.full_name?.includes("Alexander Ipaz") || user?.email?.includes("ipaz");
-    if (!isAlexanderAdmin) {
-      toast.error("Suscripción requerida para publicar.");
+    if (!hasAccess) {
+      toast.error("Tu suscripción ha expirado o no tienes un plan activo. Por favor, renueva tu plan para continuar.");
       return;
     }
 
@@ -188,19 +194,40 @@ export default function Publish() {
   };
 
   return (
-    <div className="p-8 max-w-3xl">
-      <div className="mb-6 flex items-center justify-between">
+    <div className="p-4 sm:p-8 max-w-3xl">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-bold text-foreground">Configurar publicación</h1>
+          <h1 className="font-display text-xl sm:text-2xl font-bold text-foreground">Configurar publicación</h1>
           <p className="text-muted-foreground text-sm mt-1">Define los parámetros de tus publicaciones</p>
         </div>
-        <Button variant="secondary" onClick={handleTestPublish} className="bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border border-amber-500/20">
+        <Button 
+          variant="secondary" 
+          onClick={handleTestPublish} 
+          disabled={!hasAccess || loadingSub}
+          className="bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border border-amber-500/20"
+        >
           <Play className="h-4 w-4 mr-2" />
           Probar Extensión (Perfume)
         </Button>
       </div>
 
       <div className="space-y-6">
+        {/* Subscription Expired Warning */}
+        {isExpired && !isAdmin && (
+          <Card className="border-destructive/50 bg-destructive/5">
+            <CardContent className="p-4 flex items-center gap-3">
+              <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-destructive">Tu plan ha expirado</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Renueva tu suscripción para seguir publicando automáticamente en Marketplace.</p>
+              </div>
+              <Button asChild size="sm" variant="destructive">
+                <Link to="/dashboard/subscription">Renovar ahora</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Day indicator */}
         <Card className="border-border/60 bg-primary/5">
           <CardContent className="p-4 flex items-center gap-3">
@@ -307,7 +334,7 @@ export default function Publish() {
           </CardContent>
         </Card>
 
-        <Button size="lg" className="w-full" onClick={handleSave} disabled={saving}>
+        <Button size="lg" className="w-full" onClick={handleSave} disabled={!hasAccess || saving}>
           {saving ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Rocket className="h-5 w-5 mr-2" />}
           Guardar configuración
         </Button>
