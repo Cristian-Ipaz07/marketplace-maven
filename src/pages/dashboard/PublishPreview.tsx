@@ -57,6 +57,8 @@ const dayNames = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes"
 export default function PublishPreview() {
   const { user } = useAuth();
   const { isExpired: subExpired } = useSubscription();
+  const [isAutomationRunning, setIsAutomationRunning] = useState(false);
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [items, setItems] = useState<PublishItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [dailyLimit, setDailyLimit] = useState(15);
@@ -126,7 +128,7 @@ export default function PublishPreview() {
       coversByCategory[c.category].push(c);
     }
 
-    const { data: products } = await supabase.from("products").select("id, title, price, category");
+    const { data: products } = await supabase.from("products").select("id, title, price, category, description, tags");
     const productsByCategory: Record<string, Product[]> = {};
     for (const p of (products || [])) {
       const cat = p.category || "General";
@@ -192,8 +194,18 @@ export default function PublishPreview() {
         filter: `user_id=eq.${user.id}`,
       }, (payload) => {
         if (payload.new.status === 'success') {
+          const log = payload.new;
           setCompletedCount(prev => prev + 1);
           setTodayPublished(prev => prev + 1);
+          
+          // Actualizar estado VISUAL del item en la lista
+          setItems(prevItems => prevItems.map(item => {
+            if (item.product.id === log.product_id && item.cover.id === log.cover_id) {
+              return { ...item, logged: true };
+            }
+            return item;
+          }));
+
           // Actualizar ejecución en DB
           if (execId) {
             supabase.from("campaign_executions")
@@ -208,7 +220,37 @@ export default function PublishPreview() {
     return () => { supabase.removeChannel(channel); };
   }, [user, execId, completedCount]);
 
+  // Escuchar mensajes del Bridge sobre el estado de la extensión
+  useEffect(() => {
+    const handleBridgeMessage = (e: MessageEvent) => {
+      if (e.data?.source === "MARKETMASTER_BRIDGE") {
+        if (e.data.action === "ITEM_START") {
+          setActiveIdx(e.data.payload.index);
+          setIsAutomationRunning(true);
+        } else if (e.data.action === "COMPLETED") {
+          setIsAutomationRunning(false);
+          setActiveIdx(null);
+        }
+      }
+    };
+    window.addEventListener("message", handleBridgeMessage);
+    return () => window.removeEventListener("message", handleBridgeMessage);
+  }, []);
+
   const dispatchToExtension = (startIdx: number) => {
+    // SALTO INTELIGENTE: Si el startIdx ya está publicado hoy, buscamos el primero que no
+    let realStartIdx = startIdx;
+    if (items[startIdx]?.logged) {
+      const firstUnlogged = items.findIndex((it, idx) => idx >= startIdx && !it.logged);
+      if (firstUnlogged !== -1) {
+        realStartIdx = firstUnlogged;
+        console.log("[MarketMaster] Salto inteligente al primer ítem no publicado:", realStartIdx);
+      } else {
+        toast.info("Todos los productos de esta tanda ya han sido publicados.");
+        return;
+      }
+    }
+
     const automationTask = {
       items: items.map(it => ({
         product: {
@@ -226,13 +268,19 @@ export default function PublishPreview() {
       })),
       config: {
         manualPublish: true, // Siempre manual por ahora según petición del usuario
-        options: ["public_place"] // Opciones por defecto, se podrían cargar de publish_configs
+        options: ["public_place", "hide_friends"] // Ocultar a amigos activado por defecto
       },
-      currentIndex: startIdx
+      currentIndex: realStartIdx
     };
 
-    const event = new CustomEvent('MARKETMASTER_START_AUTO_FILL', { detail: automationTask });
-    window.dispatchEvent(event);
+    setIsAutomationRunning(true);
+    setActiveIdx(realStartIdx);
+    console.log("[MarketMaster] Enviando AutomationTask a extensión (test):", automationTask);
+    window.postMessage({ 
+      source: "MARKETMASTER_DASHBOARD", 
+      action: "START_AUTO_FILL", 
+      payload: automationTask 
+    }, "*");
   };
 
   const handleStart = async () => {
@@ -399,37 +447,37 @@ export default function PublishPreview() {
 
       {/* Items */}
       <div className="space-y-3">
-        {items.map((item) => {
-          const isCompleted = item.publicationIndex < completedCount || item.logged;
-          const isRunning = execStatus === "running" && item.publicationIndex === completedCount;
+        {items.map((item, idx) => {
+          const isCompleted = item.logged;
+          const isCurrent = activeIdx === idx && isAutomationRunning;
           
           return (
             <Card 
-              key={`${item.cover.id}-${item.publicationIndex}`} 
+              key={`${item.cover.id}-${idx}`} 
               className={cn(
                 "border-border/60 transition-all duration-300",
-                isCompleted ? "opacity-60 bg-muted/30" : "",
-                isRunning ? "border-primary ring-1 ring-primary/20 shadow-md translate-x-1" : ""
+                isCompleted ? "opacity-60 bg-muted/20 border-accent/30" : "",
+                isCurrent ? "border-accent ring-1 ring-accent/20 shadow-md translate-x-1" : ""
               )}
             >
               <CardContent className="p-4">
                 <div className="flex items-start gap-4">
                   <div className={cn(
                     "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors",
-                    isCompleted ? "bg-accent/20" : isRunning ? "bg-primary animate-pulse" : "bg-primary/10"
+                    isCompleted ? "bg-accent/20" : isCurrent ? "bg-accent animate-pulse" : "bg-primary/10"
                   )}>
                     {isCompleted ? (
                       <CheckCircle2 className="h-4 w-4 text-accent" />
-                    ) : isRunning ? (
-                      <Loader2 className="h-4 w-4 text-primary-foreground animate-spin" />
+                    ) : isCurrent ? (
+                      <Loader2 className="h-4 w-4 text-white animate-spin" />
                     ) : (
-                      <span className="text-xs font-bold text-primary">#{item.publicationIndex + 1}</span>
+                      <span className="text-xs font-bold text-primary">#{idx + 1}</span>
                     )}
                   </div>
 
                   <div className={cn(
                     "flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 bg-muted transition-colors",
-                    isRunning ? "border-primary shadow-sm" : "border-primary/30"
+                    isCurrent ? "border-accent shadow-sm" : "border-primary/30"
                   )}>
                     <img src={item.cover.image_url} alt="Portada" className="w-full h-full object-cover" />
                   </div>
@@ -439,7 +487,7 @@ export default function PublishPreview() {
                       <p className={cn("font-medium text-sm truncate", isCompleted ? "text-muted-foreground line-through" : "text-foreground")}>
                         {item.product.title}
                       </p>
-                      {isRunning && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 animate-pulse bg-primary/10 text-primary border-primary/20">Publicando</Badge>}
+                      {isCurrent && <Badge variant="secondary" className="text-[10px] h-4 px-1.5 animate-pulse bg-accent/10 text-accent border-accent/20">Publicando</Badge>}
                     </div>
                     <p className="text-xs text-muted-foreground">${item.product.price} · {item.product.category || "General"}</p>
                   </div>

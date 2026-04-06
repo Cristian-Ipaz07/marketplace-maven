@@ -186,11 +186,14 @@ export default function Publish() {
       currentIndex: 0
     };
 
-    console.log("[MarketMaster] Enviando AutomationTask a extensión:", automationTask);
+    console.log("[MarketMaster] Enviando AutomationTask a extensión (test):", automationTask);
 
-    // 6. Disparar evento a la extensión
-    const event = new CustomEvent('MARKETMASTER_START_AUTO_FILL', { detail: automationTask });
-    window.dispatchEvent(event);
+    // 6. Disparar evento a la extensión vía postMessage (más fiable entre mundos aislados)
+    window.postMessage({ 
+      source: "MARKETMASTER_DASHBOARD", 
+      action: "START_AUTO_FILL", 
+      payload: automationTask 
+    }, "*");
   };
 
   return (
