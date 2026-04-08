@@ -31,6 +31,7 @@ export default function PublicationLogs() {
     const { data } = await supabase
       .from("publication_logs")
       .select("*")
+      .eq("user_id", user!.id)
       .order("published_at", { ascending: false })
       .limit(100);
 
@@ -41,8 +42,8 @@ export default function PublicationLogs() {
     const profileIds = [...new Set(data.map((l) => l.profile_id).filter(Boolean))] as string[];
 
     const [{ data: products }, { data: profiles }] = await Promise.all([
-      supabase.from("products").select("id, title").in("id", productIds.length > 0 ? productIds : ["none"]),
-      supabase.from("connected_accounts").select("id, name").in("id", profileIds.length > 0 ? profileIds : ["none"]),
+      supabase.from("products").select("id, title").in("id", productIds.length > 0 ? productIds : ["00000000-0000-0000-0000-000000000000"]),
+      supabase.from("connected_accounts").select("id, name").in("id", profileIds.length > 0 ? profileIds : ["00000000-0000-0000-0000-000000000000"]),
     ]);
 
     const productMap = Object.fromEntries((products || []).map((p) => [p.id, p.title]));

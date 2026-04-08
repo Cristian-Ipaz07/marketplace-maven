@@ -56,12 +56,11 @@ const dayNames = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes"
 
 export default function PublishPreview() {
   const { user } = useAuth();
-  const { isExpired: subExpired } = useSubscription();
+  const { isExpired: subExpired, sub } = useSubscription();
   const [isAutomationRunning, setIsAutomationRunning] = useState(false);
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [items, setItems] = useState<PublishItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dailyLimit, setDailyLimit] = useState(15);
   const [todayPublished, setTodayPublished] = useState(0);
 
   // Execution state
@@ -79,28 +78,27 @@ export default function PublishPreview() {
 
   const loadAll = async () => {
     setLoading(true);
-    await Promise.all([buildPreview(), loadSubscription(), loadTodayLogs(), loadExecution()]);
+    await Promise.all([buildPreview(), loadTodayLogs(), loadExecution()]);
     setLoading(false);
   };
 
-  const loadSubscription = async () => {
-    const { data } = await supabase.from("subscriptions").select("daily_limit").eq("active", true).limit(1);
-    if (data && data.length > 0) setDailyLimit(data[0].daily_limit);
-  };
-
   const loadTodayLogs = async () => {
+    if (!user) return;
     const { count } = await supabase
       .from("publication_logs")
       .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
       .gte("published_at", todayDate + "T00:00:00")
       .lte("published_at", todayDate + "T23:59:59");
     setTodayPublished(count || 0);
   };
 
   const loadExecution = async () => {
+    if (!user) return;
     const { data } = await supabase
       .from("campaign_executions")
       .select("*")
+      .eq("user_id", user.id)
       .eq("day_of_week", todayKey)
       .gte("created_at", todayDate + "T00:00:00")
       .order("created_at", { ascending: false })
@@ -140,7 +138,7 @@ export default function PublishPreview() {
     const { data: galleries } = await supabase
       .from("product_images")
       .select("id, image_url, product_id")
-      .in("product_id", allProductIds.length > 0 ? allProductIds : ["none"])
+      .in("product_id", allProductIds.length > 0 ? allProductIds : ["00000000-0000-0000-0000-000000000000"])
       .eq("is_cover", false)
       .order("position");
 
@@ -148,6 +146,7 @@ export default function PublishPreview() {
     const { data: logs } = await supabase
       .from("publication_logs")
       .select("cover_id, product_id")
+      .eq("user_id", user!.id)
       .gte("published_at", todayDate + "T00:00:00")
       .eq("status", "success");
     const loggedSet = new Set((logs || []).map((l) => `${l.cover_id}-${l.product_id}`));
@@ -177,8 +176,9 @@ export default function PublishPreview() {
     setItems(publishItems);
   };
 
-  const remaining = Math.max(0, dailyLimit - todayPublished);
-  const limitReached = dailyLimit < 9999 && remaining <= 0;
+  const effectiveLimit = sub?.daily_limit ?? 9999;
+  const remaining = Math.max(0, effectiveLimit - todayPublished);
+  const limitReached = effectiveLimit < 9999 && remaining <= 0;
   const blocked = limitReached || subExpired;
 
   useEffect(() => {
@@ -237,16 +237,17 @@ export default function PublishPreview() {
     return () => window.removeEventListener("message", handleBridgeMessage);
   }, []);
 
-  const dispatchToExtension = (startIdx: number) => {
-    // SALTO INTELIGENTE: Si el startIdx ya está publicado hoy, buscamos el primero que no
+  const dispatchToExtension = (startIdx: number, forceStart = false) => {
+    // SALTO INTELIGENTE: Solo al REANUDAR (no al iniciar)
+    // Al iniciar siempre empezar desde donde se pide, ignorando logs
     let realStartIdx = startIdx;
-    if (items[startIdx]?.logged) {
+    if (!forceStart && items[startIdx]?.logged) {
       const firstUnlogged = items.findIndex((it, idx) => idx >= startIdx && !it.logged);
       if (firstUnlogged !== -1) {
         realStartIdx = firstUnlogged;
         console.log("[MarketMaster] Salto inteligente al primer ítem no publicado:", realStartIdx);
       } else {
-        toast.info("Todos los productos de esta tanda ya han sido publicados.");
+        toast.info("Todos los productos de esta tanda ya han sido publicados hoy.");
         return;
       }
     }
@@ -276,11 +277,20 @@ export default function PublishPreview() {
     setIsAutomationRunning(true);
     setActiveIdx(realStartIdx);
     console.log("[MarketMaster] Enviando AutomationTask a extensión (test):", automationTask);
-    window.postMessage({ 
+    
+    // Enviar el mensaje al bridge
+    const sent = window.postMessage({ 
       source: "MARKETMASTER_DASHBOARD", 
       action: "START_AUTO_FILL", 
       payload: automationTask 
     }, "*");
+    
+    // Si el bridge no responde en 3s, alertar al usuario
+    const bridgeTimeout = setTimeout(() => {
+      if (!document.querySelector('#mmaster-bridge-ok')) {
+        toast.warning("⚠️ La extensión no responde. Recarga esta página (F5) e inténtalo de nuevo.");
+      }
+    }, 3000);
   };
 
   const handleStart = async () => {
@@ -301,7 +311,7 @@ export default function PublishPreview() {
     setExecStatus("running");
     setCompletedCount(0);
     
-    dispatchToExtension(0);
+    dispatchToExtension(0, true); // forceStart=true: ignorar logs previos al iniciar
     toast.success(`¡Campaña iniciada! La extensión comenzará el llenado.`);
   };
 
@@ -317,7 +327,7 @@ export default function PublishPreview() {
     await supabase.from("campaign_executions").update({ status: "running", paused_at: null }).eq("id", execId);
     setExecStatus("running");
     
-    dispatchToExtension(completedCount);
+    dispatchToExtension(completedCount); // resume: usar smart-skip normal
     toast.success(`Campaña reanudada desde #${completedCount + 1}.`);
   };
 
@@ -370,7 +380,7 @@ export default function PublishPreview() {
             <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
             <div>
               <p className="text-sm font-medium text-destructive">Límite diario alcanzado</p>
-              <p className="text-xs text-muted-foreground">Has publicado {todayPublished}/{dailyLimit >= 9999 ? "∞" : dailyLimit} publicaciones hoy. Actualiza tu plan para más.</p>
+              <p className="text-xs text-muted-foreground">Has publicado {todayPublished}/{effectiveLimit >= 9999 ? "∞" : effectiveLimit} publicaciones hoy. Actualiza tu plan para más.</p>
             </div>
           </CardContent>
         </Card>
@@ -395,9 +405,9 @@ export default function PublishPreview() {
               {Object.entries(categoryCounts).map(([cat, count]) => (
                 <Badge key={cat} variant="outline" className="text-xs">{cat}: {count}</Badge>
               ))}
-              {dailyLimit < 9999 && (
+              {effectiveLimit < 9999 && (
                 <Badge variant={limitReached ? "destructive" : "secondary"} className="text-xs">
-                  {todayPublished}/{dailyLimit} hoy
+                  {todayPublished}/{effectiveLimit} hoy
                 </Badge>
               )}
             </div>
