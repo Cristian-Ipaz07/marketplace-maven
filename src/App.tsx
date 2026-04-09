@@ -8,6 +8,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import ConfirmEmail from "./pages/ConfirmEmail";
 import DashboardLayout from "./components/DashboardLayout";
 import Overview from "./pages/dashboard/Overview";
 import Inventory from "./pages/dashboard/Inventory";
@@ -34,6 +35,7 @@ const App = () => (
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/confirm-email" element={<ConfirmEmail />} />
             <Route path="/dashboard" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
               <Route index element={<Overview />} />
               <Route path="inventory" element={<Inventory />} />

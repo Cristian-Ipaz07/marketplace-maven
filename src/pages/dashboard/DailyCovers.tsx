@@ -8,6 +8,8 @@ import { ImagePlus, Loader2, Trash2, CalendarDays, ChevronDown, FolderOpen } fro
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSubscription } from "@/hooks/useSubscription";
+import { PLAN_LIMITS } from "@/lib/plans";
 
 interface Cover {
   id: string;
@@ -31,6 +33,7 @@ const dayNames = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes"
 
 export default function DailyCovers() {
   const { user } = useAuth();
+  const { sub, loading: loadingSub } = useSubscription();
   const [covers, setCovers] = useState<Cover[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -44,7 +47,7 @@ export default function DailyCovers() {
   const todayKey = dayNames[new Date().getDay()];
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || loadingSub) return;
     const load = async () => {
       const [coversRes, configRes, productsRes] = await Promise.all([
         supabase.from("daily_covers").select("*").order("position"),
@@ -52,8 +55,17 @@ export default function DailyCovers() {
         supabase.from("products").select("category"),
       ]);
       setCovers(coversRes.data || []);
-      if (configRes.data?.[0]) setMaxCovers(configRes.data[0].quantity);
-      const uniqueCats = [...new Set((productsRes.data || []).map((p) => p.category).filter(Boolean))] as string[];
+      
+      const currentPlan = sub?.plan || "basico";
+      const planLimits = PLAN_LIMITS[currentPlan] || PLAN_LIMITS.basico;
+      
+      const baseMax = configRes.data?.[0]?.quantity || 10;
+      setMaxCovers(planLimits.covers_per_category >= 9999 ? 9999 : baseMax);
+      
+      const uniqueCatsAll = [...new Set((productsRes.data || []).map((p) => p.category).filter(Boolean))] as string[];
+      // Limitar categorías según el plan
+      const uniqueCats = uniqueCatsAll.slice(0, planLimits.cover_categories);
+      
       setCategories(uniqueCats.length > 0 ? uniqueCats : ["General"]);
       // Open first category by default
       if (uniqueCats.length > 0) {
@@ -65,7 +77,7 @@ export default function DailyCovers() {
       setLoading(false);
     };
     load();
-  }, [user]);
+  }, [user, sub, loadingSub]);
 
   const coversFor = (category: string, day: string) =>
     covers.filter((c) => c.category === category && c.day_of_week === day).sort((a, b) => a.position - b.position);

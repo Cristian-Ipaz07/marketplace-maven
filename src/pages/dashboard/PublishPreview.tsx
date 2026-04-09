@@ -19,8 +19,10 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSubscription } from "@/hooks/useSubscription";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
+import { PLAN_LIMITS } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface Product {
   id: string;
@@ -62,6 +64,8 @@ export default function PublishPreview() {
   const [items, setItems] = useState<PublishItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [todayPublished, setTodayPublished] = useState(0);
+  const [profiles, setProfiles] = useState<{id: string, name: string}[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<string>("");
 
   // Execution state
   const [execStatus, setExecStatus] = useState<ExecStatus>("idle");
@@ -73,8 +77,21 @@ export default function PublishPreview() {
 
   useEffect(() => {
     if (!user) return;
-    loadAll();
+    supabase.from("connected_accounts").select("id, name").eq("user_id", user.id).eq("active", true).order("created_at").then(({ data }) => {
+       if (data && data.length > 0) {
+           setProfiles(data);
+           setSelectedProfileId(data[0].id);
+       } else {
+           setProfiles([]);
+           setSelectedProfileId("none");
+       }
+    });
   }, [user]);
+
+  useEffect(() => {
+    if (!user || !selectedProfileId) return;
+    loadAll();
+  }, [user, selectedProfileId]);
 
   const loadAll = async () => {
     setLoading(true);
@@ -84,12 +101,16 @@ export default function PublishPreview() {
 
   const loadTodayLogs = async () => {
     if (!user) return;
-    const { count } = await supabase
+    let query = supabase
       .from("publication_logs")
       .select("id", { count: "exact", head: true })
       .eq("user_id", user.id)
       .gte("published_at", todayDate + "T00:00:00")
       .lte("published_at", todayDate + "T23:59:59");
+    if (selectedProfileId !== "none") {
+      query = query.eq("profile_id", selectedProfileId);
+    }
+    const { count } = await query;
     setTodayPublished(count || 0);
   };
 
@@ -143,18 +164,29 @@ export default function PublishPreview() {
       .order("position");
 
     // Load today's successful logs to mark completed
-    const { data: logs } = await supabase
+    let logQuery = supabase
       .from("publication_logs")
       .select("cover_id, product_id")
       .eq("user_id", user!.id)
       .gte("published_at", todayDate + "T00:00:00")
       .eq("status", "success");
+    if (selectedProfileId !== "none") {
+      logQuery = logQuery.eq("profile_id", selectedProfileId);
+    }
+    const { data: logs } = await logQuery;
     const loggedSet = new Set((logs || []).map((l) => `${l.cover_id}-${l.product_id}`));
 
     const publishItems: PublishItem[] = [];
+    const currentPlan = sub?.plan || "basico";
+    const planLimits = PLAN_LIMITS[currentPlan] || PLAN_LIMITS.basico;
+    
+    // Solo permitimos X categorias para publicar, según el limite del plan
+    const availableCategories = Object.keys(coversByCategory).slice(0, planLimits.cover_categories);
+
     let globalIdx = 0;
 
-    for (const [category, catCovers] of Object.entries(coversByCategory)) {
+    for (const category of availableCategories) {
+      const catCovers = coversByCategory[category];
       const catProducts = productsByCategory[category] || [];
       if (catProducts.length === 0) continue;
 
@@ -271,6 +303,7 @@ export default function PublishPreview() {
         manualPublish: true, // Siempre manual por ahora según petición del usuario
         options: ["public_place", "hide_friends"] // Ocultar a amigos activado por defecto
       },
+      profileId: selectedProfileId !== "none" ? selectedProfileId : null,
       currentIndex: realStartIdx
     };
 
@@ -350,11 +383,31 @@ export default function PublishPreview() {
 
   return (
     <div className="p-8 max-w-4xl">
-      <div className="mb-6">
-        <h1 className="font-display text-2xl font-bold text-foreground">Preview de Publicación</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Revisa las publicaciones para hoy (<span className="capitalize text-primary font-medium">{todayKey}</span>).
-        </p>
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-foreground">Preview de Publicación</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Revisa las publicaciones para hoy (<span className="capitalize text-primary font-medium">{todayKey}</span>).
+          </p>
+        </div>
+        <div className="w-full sm:w-64">
+           {profiles.length > 0 ? (
+             <Select value={selectedProfileId} onValueChange={setSelectedProfileId}>
+               <SelectTrigger className="w-full font-medium">
+                 <SelectValue placeholder="Seleccionar Perfil" />
+               </SelectTrigger>
+               <SelectContent>
+                 {profiles.map(p => (
+                   <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                 ))}
+               </SelectContent>
+             </Select>
+           ) : (
+             <Badge variant="outline" className="px-3 py-2 text-muted-foreground w-full justify-center">
+               Sin perfiles conectados
+             </Badge>
+           )}
+        </div>
       </div>
 
       {/* Subscription Expired */}
@@ -416,7 +469,7 @@ export default function PublishPreview() {
           {/* Execution controls */}
           <div className="flex items-center gap-3 flex-wrap border-t border-border/60 pt-4">
             {execStatus === "idle" && (
-              <Button onClick={handleStart} disabled={blocked || items.length === 0} size="lg">
+              <Button onClick={handleStart} disabled={blocked || items.length === 0 || selectedProfileId === "none" || profiles.length === 0} size="lg">
                 <Play className="h-5 w-5 mr-2" /> Iniciar publicación
               </Button>
             )}

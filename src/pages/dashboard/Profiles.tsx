@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { UserCircle, Plus, Loader2, FolderOpen } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSubscription } from "@/hooks/useSubscription";
+import { PLAN_LIMITS } from "@/lib/plans";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
@@ -20,11 +22,15 @@ interface Profile {
 
 export default function Profiles() {
   const { user } = useAuth();
+  const { sub } = useSubscription();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPath, setNewPath] = useState("");
+
+  const currentPlan = sub?.plan || "basico";
+  const planLimits = PLAN_LIMITS[currentPlan] || PLAN_LIMITS.basico;
 
   useEffect(() => {
     if (!user) return;
@@ -52,6 +58,10 @@ export default function Profiles() {
 
   const addProfile = async () => {
     if (!user) return;
+    if (profiles.length >= planLimits.profiles && planLimits.profiles < 9999) {
+      toast.error(`Tu plan ${currentPlan} permite máximo ${planLimits.profiles} perfil(es). Actualiza tu plan para conectar más.`);
+      return;
+    }
     if (!newName.trim()) { toast.error("El nombre es obligatorio"); return; }
     if (!newPath.trim()) { toast.error("La ruta del perfil de Chrome es obligatoria"); return; }
     const { data, error } = await supabase.from("connected_accounts").insert({

@@ -12,12 +12,7 @@ import { Loader2, Users, Ticket, Shield, Pencil, Plus, Trash2 } from "lucide-rea
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
-
-const planConfigs: Record<string, { daily_limit: number; price: number }> = {
-  basico: { daily_limit: 15, price: 30000 },
-  pro: { daily_limit: 40, price: 50000 },
-  business: { daily_limit: 9999, price: 100000 },
-};
+import { PLAN_LIMITS } from "@/lib/plans";
 
 interface EnrichedUser {
   id: string;
@@ -143,7 +138,7 @@ export default function AdminPanel() {
     if (!editUser) return;
     setSaving(true);
     try {
-      const config = planConfigs[editPlan];
+      const config = PLAN_LIMITS[editPlan] || PLAN_LIMITS.basico;
       const updates = {
         plan: editPlan,
         daily_limit: config.daily_limit,
@@ -355,9 +350,9 @@ export default function AdminPanel() {
                   <Select value={editPlan} onValueChange={setEditPlan}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="basico">Básico ($30.000)</SelectItem>
-                      <SelectItem value="pro">Pro ($50.000)</SelectItem>
-                      <SelectItem value="business">Business ($100.000)</SelectItem>
+                      <SelectItem value="basico">Básico ($20.000)</SelectItem>
+                      <SelectItem value="pro">Pro ($30.000)</SelectItem>
+                      <SelectItem value="business">Business ($50.000)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
