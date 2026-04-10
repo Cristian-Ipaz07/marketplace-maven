@@ -1,24 +1,25 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Play, 
-  Pause, 
-  RotateCcw, 
-  ListChecks, 
-  CheckCircle2, 
-  Image as ImageIcon, 
-  AlertTriangle, 
-  ArrowRight, 
+import {
+  Play,
+  Pause,
+  RotateCcw,
+  ListChecks,
+  CheckCircle2,
+  Image as ImageIcon,
+  AlertTriangle,
   Loader2,
-  Lock
+  Lock,
+  Info,
+  WifiOff
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { withTimeout, isNetworkTimeout } from "@/lib/supabaseWithTimeout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSubscription } from "@/hooks/useSubscription";
-import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { PLAN_LIMITS } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
@@ -63,40 +64,116 @@ export default function PublishPreview() {
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [items, setItems] = useState<PublishItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [networkError, setNetworkError] = useState(false);
+  const [telemetryMsg, setTelemetryMsg] = useState<string>("");
   const [todayPublished, setTodayPublished] = useState(0);
-  const [profiles, setProfiles] = useState<{id: string, name: string}[]>([]);
+  const autoSelectedRef = useRef(false);
+  const [detectedProfile, setDetectedProfile] = useState<{ id: string, name: string } | null>(null);
+
+  const [profiles, setProfiles] = useState<{ id: string, name: string, chrome_profile_path: string }[]>([]);
+
+  const profilesRef = useRef<{ id: string, name: string, chrome_profile_path: string }[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string>("");
+  const [publishConfig, setPublishConfig] = useState<any>(null);
 
   // Execution state
   const [execStatus, setExecStatus] = useState<ExecStatus>("idle");
   const [completedCount, setCompletedCount] = useState(0);
   const [execId, setExecId] = useState<string | null>(null);
+  const [bridgeOk, setBridgeOk] = useState(false);
+  const [bridgeChecking, setBridgeChecking] = useState(true);
+
+  // Monitor del bridge (detección de extensión)
+  useEffect(() => {
+    // 1. Saludo inicial para despertar a la extensión inmediatamente
+    window.postMessage({ source: "MARKETMASTER_DASHBOARD", action: "REQUEST_PROFILE_INFO" }, "*");
+
+    const check = () => {
+      // El bridge inyecta este marcador si está vivo y funcional
+      const isOk = !!document.getElementById('mmaster-bridge-ok') || !!document.getElementById('mmaster-reload-banner');
+      setBridgeOk(isOk);
+      setBridgeChecking(false);
+    };
+
+    // Check inicial rápido
+    check();
+
+    // Polling de respaldo
+    const interval = setInterval(check, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   const todayKey = dayNames[new Date().getDay()];
   const todayDate = new Date().toISOString().split("T")[0];
 
   useEffect(() => {
     if (!user) return;
-    supabase.from("connected_accounts").select("id, name").eq("user_id", user.id).eq("active", true).order("created_at").then(({ data }) => {
-       if (data && data.length > 0) {
-           setProfiles(data);
-           setSelectedProfileId(data[0].id);
-       } else {
-           setProfiles([]);
-           setSelectedProfileId("none");
-       }
-    });
+
+    const fetchProfiles = async () => {
+      try {
+        const { data }: any = await withTimeout(
+          supabase.from("connected_accounts").select("id, name, chrome_profile_path").eq("user_id", user.id).eq("active", true).order("created_at") as any,
+          5000
+        );
+        if (data && data.length > 0) {
+          setProfiles(data);
+          profilesRef.current = data;
+          setSelectedProfileId(prev => prev && prev !== "none" ? prev : data[0].id);
+        } else {
+          setProfiles([]);
+          profilesRef.current = [];
+          setSelectedProfileId("none");
+        }
+      } catch (err) {
+        if (isNetworkTimeout(err)) {
+          setNetworkError(true);
+        }
+      }
+    };
+
+    fetchProfiles();
+
+    // Suscribirse a cambios en perfiles para actualización automática
+    const channel = supabase
+      .channel("profiles-realtime")
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "connected_accounts",
+        filter: `user_id=eq.${user.id}`,
+      }, () => {
+        fetchProfiles();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [user]);
 
   useEffect(() => {
     if (!user || !selectedProfileId) return;
+    setItems([]); // IMPORTANT: Clear items on profile change to prevent ghost UI
     loadAll();
   }, [user, selectedProfileId]);
 
   const loadAll = async () => {
     setLoading(true);
-    await Promise.all([buildPreview(), loadTodayLogs(), loadExecution()]);
-    setLoading(false);
+    setNetworkError(false);
+    try {
+      await Promise.all([buildPreview(), loadTodayLogs(), loadExecution(), loadPublishConfig()]);
+    } catch (err) {
+      if (isNetworkTimeout(err)) {
+        setNetworkError(true);
+        toast.error("⚠️ Error de red al cargar el preview, reintenta");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadPublishConfig = async () => {
+    if (!user) return;
+    const { data }: any = await withTimeout(supabase.from("publish_configs").select("*").eq("user_id", user.id).limit(1) as any, 5000);
+    if (data && data.length > 0) setPublishConfig(data[0]);
   };
 
   const loadTodayLogs = async () => {
@@ -107,23 +184,30 @@ export default function PublishPreview() {
       .eq("user_id", user.id)
       .gte("published_at", todayDate + "T00:00:00")
       .lte("published_at", todayDate + "T23:59:59");
+
     if (selectedProfileId !== "none") {
       query = query.eq("profile_id", selectedProfileId);
+    } else {
+      setTodayPublished(0);
+      return;
     }
-    const { count } = await query;
+    const { count }: any = await withTimeout(query as any, 5000);
     setTodayPublished(count || 0);
   };
 
   const loadExecution = async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from("campaign_executions")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("day_of_week", todayKey)
-      .gte("created_at", todayDate + "T00:00:00")
-      .order("created_at", { ascending: false })
-      .limit(1);
+    const { data }: any = await withTimeout(
+      supabase
+        .from("campaign_executions")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("day_of_week", todayKey)
+        .gte("created_at", todayDate + "T00:00:00")
+        .order("created_at", { ascending: false })
+        .limit(1) as any,
+      5000
+    );
     if (data && data.length > 0) {
       const exec = data[0];
       setExecId(exec.id);
@@ -133,65 +217,82 @@ export default function PublishPreview() {
   };
 
   const buildPreview = async () => {
-    const { data: covers } = await supabase
-      .from("daily_covers")
-      .select("id, image_url, position, category")
-      .eq("day_of_week", todayKey)
-      .order("position");
+    if (!user || selectedProfileId === "none") {
+      setItems([]);
+      return;
+    }
+
+    // 1. Obtener todas las portadas de hoy
+    const { data: covers }: any = await withTimeout(
+      supabase
+        .from("daily_covers")
+        // product_id instead of category
+        .select("id, image_url, position, product_id, category")
+        .eq("user_id", user.id)
+        .eq("day_of_week", todayKey)
+        .order("position") as any,
+      5000
+    );
 
     if (!covers || covers.length === 0) { setItems([]); return; }
 
-    const coversByCategory: Record<string, Cover[]> = {};
+    // Agrupar por Producto
+    const coversByProduct: Record<string, any[]> = {};
     for (const c of covers) {
-      if (!coversByCategory[c.category]) coversByCategory[c.category] = [];
-      coversByCategory[c.category].push(c);
+      if (c.product_id) {
+        if (!coversByProduct[c.product_id]) coversByProduct[c.product_id] = [];
+        coversByProduct[c.product_id].push(c);
+      }
     }
 
-    const { data: products } = await supabase.from("products").select("id, title, price, category, description, tags");
-    const productsByCategory: Record<string, Product[]> = {};
+    const uniqueProductIds = Object.keys(coversByProduct);
+    if (uniqueProductIds.length === 0) { setItems([]); return; }
+
+    const { data: products }: any = await withTimeout(
+      supabase
+        .from("products")
+        .select("id, title, price, category, description, location, tags, condition")
+        .in("id", uniqueProductIds) as any,
+      5000
+    );
+
+    const productsMap: Record<string, any> = {};
     for (const p of (products || [])) {
-      const cat = p.category || "General";
-      if (!productsByCategory[cat]) productsByCategory[cat] = [];
-      productsByCategory[cat].push(p);
+      productsMap[p.id] = p;
     }
 
-    const allProductIds = (products || []).map((p) => p.id);
-    const { data: galleries } = await supabase
-      .from("product_images")
-      .select("id, image_url, product_id")
-      .in("product_id", allProductIds.length > 0 ? allProductIds : ["00000000-0000-0000-0000-000000000000"])
-      .eq("is_cover", false)
-      .order("position");
+    const { data: galleries }: any = await withTimeout(
+      supabase
+        .from("product_images")
+        .select("id, image_url, product_id")
+        .in("product_id", uniqueProductIds)
+        .eq("is_cover", false)
+        .order("position") as any,
+      5000
+    );
 
     // Load today's successful logs to mark completed
+    // SECURITY + PROFILE ISOLATION: Fetch strictly for the authenticated user and selected profile
     let logQuery = supabase
       .from("publication_logs")
       .select("cover_id, product_id")
-      .eq("user_id", user!.id)
+      .eq("user_id", user.id)
+      .eq("profile_id", selectedProfileId)
       .gte("published_at", todayDate + "T00:00:00")
       .eq("status", "success");
-    if (selectedProfileId !== "none") {
-      logQuery = logQuery.eq("profile_id", selectedProfileId);
-    }
-    const { data: logs } = await logQuery;
+
+    const { data: logs }: any = await withTimeout(logQuery as any, 5000);
     const loggedSet = new Set((logs || []).map((l) => `${l.cover_id}-${l.product_id}`));
 
     const publishItems: PublishItem[] = [];
-    const currentPlan = sub?.plan || "basico";
-    const planLimits = PLAN_LIMITS[currentPlan] || PLAN_LIMITS.basico;
-    
-    // Solo permitimos X categorias para publicar, según el limite del plan
-    const availableCategories = Object.keys(coversByCategory).slice(0, planLimits.cover_categories);
-
     let globalIdx = 0;
 
-    for (const category of availableCategories) {
-      const catCovers = coversByCategory[category];
-      const catProducts = productsByCategory[category] || [];
-      if (catProducts.length === 0) continue;
+    for (const productId of uniqueProductIds) {
+      const catCovers = coversByProduct[productId];
+      const product = productsMap[productId];
+      if (!product) continue;
 
       for (let i = 0; i < catCovers.length; i++) {
-        const product = catProducts[i % catProducts.length];
         const productGallery = (galleries || []).filter((g) => g.product_id === product.id);
         const key = `${catCovers[i].id}-${product.id}`;
 
@@ -211,11 +312,12 @@ export default function PublishPreview() {
   const effectiveLimit = sub?.daily_limit ?? 9999;
   const remaining = Math.max(0, effectiveLimit - todayPublished);
   const limitReached = effectiveLimit < 9999 && remaining <= 0;
-  const blocked = limitReached || subExpired;
+  const blocked = limitReached || subExpired || networkError;
 
+  // Realtime Logs Listener
   useEffect(() => {
     if (!user) return;
-    
+
     // Escuchar logs en tiempo real para actualizar progreso
     const channel = supabase
       .channel("public-logs")
@@ -227,51 +329,147 @@ export default function PublishPreview() {
       }, (payload) => {
         if (payload.new.status === 'success') {
           const log = payload.new;
-          setCompletedCount(prev => prev + 1);
-          setTodayPublished(prev => prev + 1);
-          
-          // Actualizar estado VISUAL del item en la lista
-          setItems(prevItems => prevItems.map(item => {
-            if (item.product.id === log.product_id && item.cover.id === log.cover_id) {
-              return { ...item, logged: true };
-            }
-            return item;
-          }));
 
-          // Actualizar ejecución en DB
-          if (execId) {
-            supabase.from("campaign_executions")
-              .update({ completed_count: completedCount + 1 })
-              .eq("id", execId)
-              .then(() => {});
+          // INDEPENDENCIA TOTAL: Solo actualizar si el log pertenece al perfil seleccionado
+          if (log.profile_id === selectedProfileId) {
+            setCompletedCount(prev => prev + 1);
+            setTodayPublished(prev => prev + 1);
+
+            // Actualizar estado VISUAL del item en la lista
+            setItems(prevItems => prevItems.map(item => {
+              if (item.product.id === log.product_id && item.cover.id === log.cover_id) {
+                return { ...item, logged: true };
+              }
+              return item;
+            }));
+
+            // Actualizar ejecución en DB
+            if (execId) {
+              supabase.from("campaign_executions")
+                .update({ completed_count: completedCount + 1 })
+                .eq("id", execId)
+                .then(() => { });
+            }
           }
         }
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
-  }, [user, execId, completedCount]);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, execId, completedCount, selectedProfileId]);
 
-  // Escuchar mensajes del Bridge sobre el estado de la extensión
+  // Telemetry Listener (Separate from public-logs to avoid bugs)
+  useEffect(() => {
+    if (!user) return;
+    // ESCUCHAR TELEMETRÍA REMOTA (Celulares)
+    const telemetryChannel = supabase.channel('bot-telemetry')
+      .on("broadcast", { event: "bot_status" }, (payload) => {
+        if (payload.payload?.profile_id === selectedProfileId || !selectedProfileId) {
+          setTelemetryMsg(payload.payload.message);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(telemetryChannel);
+    };
+  }, [user, selectedProfileId]);
+
+  // Escuchar mensajes del Bridge sobre el estado de la extensión (Local)
   useEffect(() => {
     const handleBridgeMessage = (e: MessageEvent) => {
       if (e.data?.source === "MARKETMASTER_BRIDGE") {
+        console.log(`[Bridge Action] 📥 ${e.data.action}`, e.data.payload);
+
+        if (e.data.action === "PROFILE_DETECTED") {
+          const profileId = e.data.payload.id; // Este es el chromeProfileId (UUID de la extensión)
+          // CORRECCIÓN: buscar por chrome_profile_path, NO por id (Supabase UUID)
+          const knownProfile = profilesRef.current.find(p => p.chrome_profile_path === profileId);
+          const profileName = knownProfile ? knownProfile.name : e.data.payload.name;
+
+          setDetectedProfile({ id: profileId, name: profileName });
+
+          if (!autoSelectedRef.current && knownProfile) {
+            console.log("[Bridge] 🤖 Perfil detectado de manera automática:", profileName);
+            // Seleccionar por Supabase UUID para que el Select funcione correctamente
+            setSelectedProfileId(knownProfile.id);
+            autoSelectedRef.current = true;
+          }
+          return;
+        }
+
+        // --- FILTRADO DE SEGURIDAD (Multi-perfil) ---
+        const msgProfileId = e.data.payload?.profile_id || e.data.payload?.profileId;
+
+        // RELAXED MATCH: Si el mensaje no trae ID, o si coincide con el seleccionado, lo dejamos pasar.
+        // Esto previene que el dashboard se quede "mudo" si la extensión olvida mandar el ID en algún paso.
+        const matches = !msgProfileId || !selectedProfileId || selectedProfileId === "none" || selectedProfileId === msgProfileId;
+
+        if (!matches) {
+          console.log(`[Bridge Filter] 🛡️ Mensaje de otro perfil (${msgProfileId}) ignorado en UI local.`);
+          // Relay hacia Supabase para el móvil (telemetría cross-profile)
+          if (e.data.action === "TELEMETRY_UPDATE") {
+            supabase.channel('bot-telemetry').send({
+              type: "broadcast",
+              event: "bot_status",
+              payload: { ...e.data.payload, profile_id: msgProfileId }
+            });
+          }
+          return;
+        }
+
         if (e.data.action === "ITEM_START") {
           setActiveIdx(e.data.payload.index);
           setIsAutomationRunning(true);
+          setTelemetryMsg("Iniciando...");
+
         } else if (e.data.action === "COMPLETED") {
           setIsAutomationRunning(false);
           setActiveIdx(null);
+          setTelemetryMsg("Esperando...");
+
+          if (e.data.payload.productId) {
+            setItems(prevItems => prevItems.map(item => {
+              if (item.product.id === e.data.payload.productId) return { ...item, logged: true };
+              return item;
+            }));
+          }
+
+        } else if (e.data.action === "ITEM_PUBLISHED_SUCCESS") {
+          const { productId, index } = e.data.payload;
+          setItems(prev => prev.map((item, i) => {
+            if (i === index || item.product.id === productId) return { ...item, logged: true };
+            return item;
+          }));
+          setActiveIdx(index + 1);
+          setTelemetryMsg(`✅ Producto #${index + 1} listo.`);
+
+        } else if (e.data.action === "TELEMETRY_UPDATE") {
+          const msg = e.data.payload.message;
+          setTelemetryMsg(msg);
+
+          // PROPAGACIÓN REALTIME AL CELULAR
+          supabase.channel('bot-telemetry').send({
+            type: "broadcast",
+            event: "bot_status",
+            payload: {
+              ...e.data.payload,
+              profile_id: msgProfileId || selectedProfileId
+            }
+          });
         }
       }
     };
     window.addEventListener("message", handleBridgeMessage);
     return () => window.removeEventListener("message", handleBridgeMessage);
-  }, []);
+  }, [selectedProfileId]);
 
   const dispatchToExtension = (startIdx: number, forceStart = false) => {
     // SALTO INTELIGENTE: Solo al REANUDAR (no al iniciar)
     // Al iniciar siempre empezar desde donde se pide, ignorando logs
+    const selectedProfile = profiles.find(p => p.id === selectedProfileId);
     let realStartIdx = startIdx;
     if (!forceStart && items[startIdx]?.logged) {
       const firstUnlogged = items.findIndex((it, idx) => idx >= startIdx && !it.logged);
@@ -283,6 +481,10 @@ export default function PublishPreview() {
         return;
       }
     }
+    // CRÍTICO: Enviar chrome_profile_path (no Supabase UUID) como profileId
+    // La extensión compara esto contra su chromeProfileId almacenado en chrome.storage
+    const selectedProfileData = profiles.find(p => p.id === selectedProfileId);
+    const chromeProfilePath = selectedProfileData?.chrome_profile_path ?? null;
 
     const automationTask = {
       items: items.map(it => ({
@@ -300,26 +502,29 @@ export default function PublishPreview() {
         gallery: it.gallery.map(g => ({ image_url: g.image_url }))
       })),
       config: {
-        manualPublish: true, // Siempre manual por ahora según petición del usuario
-        options: ["public_place", "hide_friends"] // Ocultar a amigos activado por defecto
+        manualPublish: true,
+        options: publishConfig?.options || ["public_place", "hide_friends"],
+        useProductCategory: publishConfig?.use_product_category ?? true,
+        selectedCategories: publishConfig?.categories || []
       },
-      profileId: selectedProfileId !== "none" ? selectedProfileId : null,
+      profileId: selectedProfile?.chrome_profile_path || null,
       currentIndex: realStartIdx
     };
+
 
     setIsAutomationRunning(true);
     setActiveIdx(realStartIdx);
     console.log("[MarketMaster] Enviando AutomationTask a extensión (test):", automationTask);
-    
+
     // Enviar el mensaje al bridge
-    const sent = window.postMessage({ 
-      source: "MARKETMASTER_DASHBOARD", 
-      action: "START_AUTO_FILL", 
-      payload: automationTask 
+    window.postMessage({
+      source: "MARKETMASTER_DASHBOARD",
+      action: "START_AUTO_FILL",
+      payload: automationTask
     }, "*");
-    
+
     // Si el bridge no responde en 3s, alertar al usuario
-    const bridgeTimeout = setTimeout(() => {
+    setTimeout(() => {
       if (!document.querySelector('#mmaster-bridge-ok')) {
         toast.warning("⚠️ La extensión no responde. Recarga esta página (F5) e inténtalo de nuevo.");
       }
@@ -333,40 +538,44 @@ export default function PublishPreview() {
 
     let currentExecId = execId;
     if (execId) {
-      await supabase.from("campaign_executions").update({ ...payload, status: "running" }).eq("id", execId);
+      await withTimeout(supabase.from("campaign_executions").update({ ...payload, status: "running" } as any).eq("id", execId) as any, 5000);
     } else {
-      const { data } = await supabase.from("campaign_executions").insert(payload).select("id").single();
-      if (data) {
+      const { data, error }: any = await withTimeout(supabase.from("campaign_executions").insert(payload).select("id").single() as any, 5000);
+      if (!error && data) {
         setExecId(data.id);
         currentExecId = data.id;
       }
     }
     setExecStatus("running");
     setCompletedCount(0);
-    
+
     dispatchToExtension(0, true); // forceStart=true: ignorar logs previos al iniciar
     toast.success(`¡Campaña iniciada! La extensión comenzará el llenado.`);
   };
 
   const handlePause = async () => {
     if (!execId) return;
-    await supabase.from("campaign_executions").update({ status: "paused", paused_at: new Date().toISOString() }).eq("id", execId);
+    // 1. Pausa Extrema: detener la extensión inmediatamente
+    window.postMessage({ source: "MARKETMASTER_DASHBOARD", action: "PAUSE_AUTOMATION" }, "*");
+
+    // 2. Guardar estado en BD
+    await withTimeout(supabase.from("campaign_executions").update({ status: "paused", paused_at: new Date().toISOString() } as any).eq("id", execId) as any, 5000);
     setExecStatus("paused");
-    toast.info(`Campaña pausada en #${completedCount}.`);
+    toast.info(`Campaña pausada abruptamente en #${completedCount}.`);
   };
 
   const handleResume = async () => {
     if (!execId) return;
-    await supabase.from("campaign_executions").update({ status: "running", paused_at: null }).eq("id", execId);
+    await withTimeout(supabase.from("campaign_executions").update({ status: "running", paused_at: null } as any).eq("id", execId) as any, 5000);
     setExecStatus("running");
-    
+
     dispatchToExtension(completedCount); // resume: usar smart-skip normal
     toast.success(`Campaña reanudada desde #${completedCount + 1}.`);
   };
 
   const handleReset = async () => {
     if (!execId) return;
-    await supabase.from("campaign_executions").update({ status: "idle", completed_count: 0, paused_at: null, started_at: null }).eq("id", execId);
+    await withTimeout(supabase.from("campaign_executions").update({ status: "idle", completed_count: 0, paused_at: null, started_at: null } as any).eq("id", execId) as any, 5000);
     setExecStatus("idle");
     setCompletedCount(0);
     toast.info("Campaña reiniciada.");
@@ -381,6 +590,23 @@ export default function PublishPreview() {
 
   if (loading) return <div className="p-8 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
 
+  if (networkError) {
+    return (
+      <div className="p-8">
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="p-8 flex flex-col items-center gap-3 text-center">
+            <WifiOff className="h-8 w-8 text-destructive" />
+            <p className="font-medium text-destructive">⚠️ Error de red</p>
+            <p className="text-sm text-muted-foreground">No se pudo conectar con el servidor para cargar el preview. Verifica tu internet.</p>
+            <Button variant="outline" size="sm" onClick={() => { setLoading(true); loadAll(); }}>
+              <RotateCcw className="h-4 w-4 mr-2" /> Reintentar
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 max-w-4xl">
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -390,23 +616,33 @@ export default function PublishPreview() {
             Revisa las publicaciones para hoy (<span className="capitalize text-primary font-medium">{todayKey}</span>).
           </p>
         </div>
-        <div className="w-full sm:w-64">
-           {profiles.length > 0 ? (
-             <Select value={selectedProfileId} onValueChange={setSelectedProfileId}>
-               <SelectTrigger className="w-full font-medium">
-                 <SelectValue placeholder="Seleccionar Perfil" />
-               </SelectTrigger>
-               <SelectContent>
-                 {profiles.map(p => (
-                   <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                 ))}
-               </SelectContent>
-             </Select>
-           ) : (
-             <Badge variant="outline" className="px-3 py-2 text-muted-foreground w-full justify-center">
-               Sin perfiles conectados
-             </Badge>
-           )}
+        <div className="w-full sm:w-auto flex flex-col md:flex-row items-end md:items-center gap-3">
+          {/* Notificación persistente del Perfil que está emitiendo por el bridge local */}
+          {detectedProfile && (
+            <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden md:flex items-center gap-1.5 h-10 px-3">
+              <CheckCircle2 className="h-4 w-4" />
+              <span>Perfil Activo en esta ventana: <strong>{detectedProfile.name}</strong></span>
+            </Badge>
+          )}
+
+          <div className="w-full sm:w-64">
+            {profiles.length > 0 ? (
+              <Select value={selectedProfileId} onValueChange={setSelectedProfileId}>
+                <SelectTrigger className="w-full font-medium">
+                  <SelectValue placeholder="Seleccionar Perfil" />
+                </SelectTrigger>
+                <SelectContent>
+                  {profiles.map(p => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Badge variant="outline" className="px-3 py-2 text-muted-foreground w-full justify-center">
+                Sin perfiles conectados
+              </Badge>
+            )}
+          </div>
         </div>
       </div>
 
@@ -469,18 +705,50 @@ export default function PublishPreview() {
           {/* Execution controls */}
           <div className="flex items-center gap-3 flex-wrap border-t border-border/60 pt-4">
             {execStatus === "idle" && (
-              <Button onClick={handleStart} disabled={blocked || items.length === 0 || selectedProfileId === "none" || profiles.length === 0} size="lg">
-                <Play className="h-5 w-5 mr-2" /> Iniciar publicación
-              </Button>
+              <div className="flex flex-col gap-2 min-w-[220px]">
+                <Button
+                  onClick={handleStart}
+                  disabled={blocked || items.length === 0 || selectedProfileId === "none" || profiles.length === 0 || (!bridgeOk && !bridgeChecking)}
+                  size="lg"
+                  className={cn(
+                    "w-full transition-all active:scale-95",
+                    !bridgeOk && !bridgeChecking ? "bg-muted text-muted-foreground opacity-50" : "bg-primary hover:bg-primary/90 text-white shadow-md"
+                  )}
+                >
+                  <Play className={cn("h-5 w-5 mr-2", (!bridgeOk && !bridgeChecking) ? "" : "text-white")} />
+                  {!bridgeOk && !bridgeChecking ? "Extensión no detectada" : "Iniciar publicación"}
+                </Button>
+                {!bridgeOk && !bridgeChecking && (
+                  <p className="text-[10px] text-destructive flex items-center justify-center gap-1 animate-pulse font-bold bg-destructive/10 py-1 rounded">
+                    <Info className="h-3 w-3" /> Extensión no lista. Refresca (F5).
+                  </p>
+                )}
+                {bridgeChecking && (
+                  <p className="text-[10px] text-muted-foreground flex items-center justify-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Verificando extensión...
+                  </p>
+                )}
+              </div>
             )}
             {execStatus === "running" && (
               <>
-                <Button onClick={handlePause} variant="outline" size="lg">
-                  <Pause className="h-5 w-5 mr-2" /> Pausar
+                <Button onClick={handlePause} variant="destructive" size="lg" className="animate-pulse shadow-md">
+                  <Pause className="h-5 w-5 mr-2" /> Pausar Bot
                 </Button>
-                <Badge className="bg-accent text-accent-foreground animate-pulse">
-                  <ListChecks className="h-3 w-3 mr-1" /> Publicando... {completedCount}/{items.length}
-                </Badge>
+                <div className="flex flex-col gap-1.5 ml-2">
+                  <Badge className="bg-accent text-accent-foreground animate-pulse self-start">
+                    <ListChecks className="h-3 w-3 mr-1" /> Publicando... {completedCount}/{items.length}
+                  </Badge>
+                  {telemetryMsg && (
+                    <span className="text-xs font-mono text-muted-foreground flex items-center gap-1.5 bg-muted/50 px-2 py-1.5 rounded-md">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>
+                      </span>
+                      {telemetryMsg}
+                    </span>
+                  )}
+                </div>
               </>
             )}
             {execStatus === "paused" && (
@@ -513,10 +781,10 @@ export default function PublishPreview() {
         {items.map((item, idx) => {
           const isCompleted = item.logged;
           const isCurrent = activeIdx === idx && isAutomationRunning;
-          
+
           return (
-            <Card 
-              key={`${item.cover.id}-${idx}`} 
+            <Card
+              key={`${item.cover.id}-${idx}`}
               className={cn(
                 "border-border/60 transition-all duration-300",
                 isCompleted ? "opacity-60 bg-muted/20 border-accent/30" : "",
@@ -580,3 +848,4 @@ export default function PublishPreview() {
     </div>
   );
 }
+

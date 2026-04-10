@@ -1,14 +1,18 @@
 import { Link, useLocation, Outlet, useNavigate } from "react-router-dom";
-import { Package, Users, Settings, CreditCard, BarChart3, LayoutDashboard, LogOut, ImageIcon, Eye, Shield, Menu, X } from "lucide-react";
+import { Package, Users, Settings, CreditCard, BarChart3, LayoutDashboard, LogOut, ImageIcon, Eye, Shield, Menu, X, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import TrialBanner from "@/components/TrialBanner";
 import { ClipboardList } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { supabase } from "@/lib/supabase";
+import { useSubscription } from "@/hooks/useSubscription";
+import { PLAN_LIMITS } from "@/lib/plans";
+import { toast } from "sonner";
 
 const navItems = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Inicio", exact: true },
@@ -74,11 +78,101 @@ function SidebarContent({ pathname, allNavItems, handleSignOut, onNavClick }: {
 
 export default function DashboardLayout() {
   const { pathname } = useLocation();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
+  const { sub } = useSubscription();
   const { isAdmin } = useIsAdmin();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
+
+  const currentPlan = sub?.plan || "basico";
+  const planLimits = PLAN_LIMITS[currentPlan] || PLAN_LIMITS.basico;
+
+  const registersRef = useRef<Record<string, boolean>>({});
+  
+  useEffect(() => {
+    if (!user) return;
+
+    const handleAutoProfile = async (e: MessageEvent) => {
+      if (e.data?.source !== "MARKETMASTER_BRIDGE" || e.data.action !== "PROFILE_DETECTED") return;
+      const { id, name } = e.data.payload;
+
+      // MUTEX: Liberar siempre en 1 segundo pase lo que pase
+      if (registersRef.current[id]) return;
+      registersRef.current[id] = true;
+
+      try {
+        // 1. BUSCAR SI EXISTE (Con Timeout de Seguridad)
+        const fetchExisting = async () => {
+            const { data, error } = await supabase
+              .from("connected_accounts")
+              .select("id, name, active")
+              .eq("chrome_profile_path", id)
+              .eq("user_id", user.id)
+              .maybeSingle();
+            if (error) throw error;
+            return data;
+        };
+
+        // Timeout de 6 segundos para la DB
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("TIMEOUT")), 6000)
+        );
+
+        const existing = await Promise.race([fetchExisting(), timeoutPromise]) as any;
+
+        if (!existing) {
+          // INSERTAR NUEVO
+          toast.promise(
+            (async () => {
+              const { error: insertError } = await supabase.from("connected_accounts").insert({
+                user_id: user.id, 
+                name: name, 
+                active: true, 
+                chrome_profile_path: id,
+                updated_at: new Date().toISOString()
+              });
+              if (insertError) throw insertError;
+            })(),
+            {
+              loading: 'Vinculando nuevo perfil...',
+              success: `¡Perfil "${name}" vinculado!`,
+              error: (err) => {
+                  if (err?.message === "TIMEOUT") return "El servidor tarda demasiado. Reintenta.";
+                  return "Error de red: No se pudo registrar el perfil.";
+              }
+            }
+          );
+        } else {
+          // ACTUALIZAR EXISTENTE
+          await supabase
+            .from("connected_accounts")
+            .update({ 
+              active: true, 
+              name: existing.name || name,
+              updated_at: new Date().toISOString() 
+            })
+            .eq("id", existing.id);
+          
+          if (!existing.active) {
+            toast.success(`Perfil "${existing.name}" reactivado.`);
+          }
+        }
+      } catch (err: any) {
+        console.error("[AutoProfile] Error:", err);
+        if (err?.message?.includes("fetch") || err?.message === "TIMEOUT") {
+            toast.error("⚠️ Error de conexión con el servidor. Reintenta en unos segundos.");
+        }
+      } finally {
+        setTimeout(() => {
+          if (registersRef.current) delete registersRef.current[id];
+        }, 1000);
+      }
+    };
+
+    window.addEventListener("message", handleAutoProfile);
+    return () => window.removeEventListener("message", handleAutoProfile);
+  }, [user, planLimits]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -124,15 +218,15 @@ export default function DashboardLayout() {
   }
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col shrink-0">
+    <div className="flex h-screen overflow-hidden bg-background">
+      <aside className="w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col shrink-0 overflow-y-auto hidden md:flex">
         <SidebarContent
           pathname={pathname}
           allNavItems={allNavItems}
           handleSignOut={handleSignOut}
         />
       </aside>
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-y-auto relative">
         <TrialBanner />
         <Outlet />
       </main>

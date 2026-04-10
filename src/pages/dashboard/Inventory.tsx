@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Upload, Search, Plus, Trash2, Loader2, Download, ImagePlus, X } from "lucide-react";
+import { Upload, Search, Plus, Trash2, Loader2, Download, ImagePlus, X, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
@@ -17,6 +17,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 interface Product {
   id: string;
   title: string;
+  short_name: string | null;
   price: string;
   description: string | null;
   tags: string | null;
@@ -66,7 +67,7 @@ const categories = [
   "Varios",
 ];
 
-const emptyProduct = { title: "", price: "", description: "", tags: "", category: "Hogar", location: "", condition: "Nuevo" };
+const emptyProduct = { title: "", short_name: "", price: "", description: "", tags: "", category: "Hogar", location: "", condition: "Nuevo" };
 
 export default function Inventory() {
   const { user } = useAuth();
@@ -76,7 +77,9 @@ export default function Inventory() {
   const [loading, setLoading] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [form, setForm] = useState(emptyProduct);
+  const [editForm, setEditForm] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
 
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
@@ -88,7 +91,7 @@ export default function Inventory() {
   useEffect(() => {
     if (!user) return;
     const fetchProducts = async () => {
-      const { data, error } = await supabase.from("products").select("id, title, price, description, tags, category, location, condition").order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("products").select("id, title, short_name, price, description, tags, category, location, condition").order("created_at", { ascending: false });
       if (error) { toast.error("Error cargando productos"); console.error(error); }
       else setProducts(data || []);
       setLoading(false);
@@ -102,8 +105,8 @@ export default function Inventory() {
 
   const downloadTemplate = () => {
     const ws = XLSX.utils.aoa_to_sheet([
-      ["title", "price", "category", "condition", "description", "tags", "location"],
-      ["Chaqueta térmica", "45000", "Ropa", "Nuevo", "Chaqueta premium resistente al frío", "chaqueta,invierno,hombre", "Bogotá"],
+      ["title", "short_name", "price", "category", "condition", "description", "tags", "location"],
+      ["Chaqueta térmica", "Chaqueta Invierno", "45000", "Ropa y calzado de hombre", "Nuevo", "Chaqueta premium resistente al frío", "chaqueta,invierno,hombre", "Bogotá"],
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Productos");
@@ -123,6 +126,7 @@ export default function Inventory() {
         const rows = data.map((row) => ({
           user_id: user.id,
           title: row["title"] || row["titulo"] || "Sin título",
+          short_name: row["short_name"] || row["nombre_corto"] || null,
           price: row["price"] || row["precio"] || "0",
           description: row["description"] || row["descripcion"] || null,
           tags: row["tags"] || row["etiquetas"] || null,
@@ -130,7 +134,7 @@ export default function Inventory() {
           condition: row["condition"] || row["estado"] || "Nuevo",
           location: row["location"] || row["ubicacion"] || null,
         }));
-        const { data: inserted, error } = await supabase.from("products").insert(rows).select("id, title, price, description, tags, category, location, condition");
+        const { data: inserted, error } = await supabase.from("products").insert(rows).select("id, title, short_name, price, description, tags, category, location, condition");
         if (error) { toast.error("Error importando"); console.error(error); return; }
         setProducts((prev) => [...(inserted || []), ...prev]);
         toast.success(`${inserted?.length || 0} productos importados`);
@@ -144,10 +148,10 @@ export default function Inventory() {
     if (!user || !form.title.trim()) { toast.error("El título es obligatorio"); return; }
     setSaving(true);
     const { data, error } = await supabase.from("products").insert({
-      user_id: user.id, title: form.title, price: form.price || "0",
+      user_id: user.id, title: form.title, short_name: form.short_name || null, price: form.price || "0",
       description: form.description || null, tags: form.tags || null,
       category: form.category, condition: form.condition, location: form.location || null,
-    }).select("id, title, price, description, tags, category, location, condition").single();
+    }).select("id, title, short_name, price, description, tags, category, location, condition").single();
     setSaving(false);
     if (error) { toast.error("Error agregando producto"); return; }
     setProducts((prev) => [data, ...prev]);
@@ -161,6 +165,40 @@ export default function Inventory() {
     if (error) { toast.error("Error eliminando"); return; }
     setProducts((prev) => prev.filter((p) => p.id !== id));
     toast.success("Producto eliminado");
+  };
+
+  const updateProduct = async () => {
+    if (!user || !editForm || !editForm.title.trim()) { toast.error("El título es obligatorio"); return; }
+    setSaving(true);
+    const { data, error } = await supabase.from("products").update({
+      title: editForm.title, short_name: editForm.short_name || null, price: editForm.price || "0",
+      description: editForm.description || null, tags: editForm.tags || null,
+      category: editForm.category, condition: editForm.condition, location: editForm.location || null,
+    }).eq("id", editForm.id).select("id, title, short_name, price, description, tags, category, location, condition").single();
+    setSaving(false);
+    if (error) { toast.error("Error actualizando producto"); return; }
+    setProducts((prev) => prev.map((p) => p.id === editForm.id ? data : p));
+    setEditForm(null);
+    setEditOpen(false);
+    toast.success("Producto actualizado");
+  };
+
+  const exportInventory = () => {
+    const dataToExport = products.map((p) => ({
+      title: p.title,
+      short_name: p.short_name || "",
+      price: p.price,
+      category: p.category || "",
+      condition: p.condition || "",
+      description: p.description || "",
+      tags: p.tags || "",
+      location: p.location || "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Inventario");
+    XLSX.writeFile(wb, "inventario.xlsx");
+    toast.success("Inventario exportado");
   };
 
   const openImageManager = async (product: Product) => {
@@ -221,6 +259,9 @@ export default function Inventory() {
           <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
             <Upload className="h-4 w-4 sm:mr-2" /><span className="hidden sm:inline">Importar</span>
           </Button>
+          <Button variant="outline" size="sm" onClick={exportInventory}>
+            <Download className="h-4 w-4 sm:mr-2" /><span className="hidden sm:inline">Exportar</span>
+          </Button>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
               <Button size="sm"><Plus className="h-4 w-4 sm:mr-2" /><span className="hidden sm:inline">Agregar</span></Button>
@@ -228,7 +269,10 @@ export default function Inventory() {
             <DialogContent className="max-w-lg">
               <DialogHeader><DialogTitle className="font-display">Nuevo producto</DialogTitle></DialogHeader>
               <div className="space-y-3 py-2">
-                <div><Label>Título *</Label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Nombre del producto" /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2 sm:col-span-1"><Label>Título *</Label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Nombre del producto" /></div>
+                  <div className="col-span-2 sm:col-span-1"><Label>Nombre Corto (Opcional)</Label><Input value={form.short_name || ""} onChange={(e) => setForm({ ...form, short_name: e.target.value })} placeholder="Ej: Adrenaline" /></div>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><Label>Precio</Label><Input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="0" /></div>
                   <div><Label>Categoría</Label>
@@ -257,6 +301,43 @@ export default function Inventory() {
           </Dialog>
         </div>
       </div>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle className="font-display">Editar producto</DialogTitle></DialogHeader>
+          {editForm && (
+            <div className="space-y-3 py-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2 sm:col-span-1"><Label>Título *</Label><Input value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} placeholder="Nombre del producto" /></div>
+                <div className="col-span-2 sm:col-span-1"><Label>Nombre Corto (Opcional)</Label><Input value={editForm.short_name || ""} onChange={(e) => setEditForm({ ...editForm, short_name: e.target.value })} placeholder="Ej: Adrenaline" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Precio</Label><Input value={editForm.price} onChange={(e) => setEditForm({ ...editForm, price: e.target.value })} placeholder="0" /></div>
+                <div><Label>Categoría</Label>
+                  <Select value={editForm.category || "General"} onValueChange={(v) => setEditForm({ ...editForm, category: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{categories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Estado</Label>
+                  <Select value={editForm.condition || "Nuevo"} onValueChange={(v) => setEditForm({ ...editForm, condition: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{conditions.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div><Label>Ubicación</Label><Input value={editForm.location || ""} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} placeholder="Ciudad" /></div>
+              </div>
+              <div><Label>Descripción</Label><Input value={editForm.description || ""} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} placeholder="Descripción" /></div>
+              <div><Label>Etiquetas</Label><Input value={editForm.tags || ""} onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })} placeholder="etiqueta1, etiqueta2" /></div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={updateProduct} disabled={saving}>{saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Guardar Cambios</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Image Manager Dialog */}
       <Dialog open={imageDialogOpen} onOpenChange={setImageDialogOpen}>
@@ -309,7 +390,7 @@ export default function Inventory() {
                 filtered.map((p) => (
                   <div key={p.id} className="p-4 flex gap-3">
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium text-foreground text-sm truncate">{p.title}</div>
+                      <div className="font-medium text-foreground text-sm truncate" title={p.title}>{p.short_name || p.title}</div>
                       <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{p.description}</div>
                       <div className="flex items-center gap-2 mt-2 flex-wrap">
                         <span className="text-sm font-semibold text-foreground">${p.price}</span>
@@ -321,6 +402,9 @@ export default function Inventory() {
                     <div className="flex flex-col gap-1 shrink-0">
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => openImageManager(p)}>
                         <ImagePlus className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => { setEditForm(p); setEditOpen(true); }}>
+                        <Pencil className="h-4 w-4" />
                       </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => removeProduct(p.id)}>
                         <Trash2 className="h-4 w-4" />
@@ -355,7 +439,7 @@ export default function Inventory() {
                   filtered.map((p) => (
                     <TableRow key={p.id}>
                       <TableCell>
-                        <div className="font-medium text-foreground">{p.title}</div>
+                        <div className="font-medium text-foreground" title={p.title}>{p.short_name || p.title}</div>
                         <div className="text-xs text-muted-foreground line-clamp-1">{p.description}</div>
                       </TableCell>
                       <TableCell className="font-medium text-foreground">${p.price}</TableCell>
@@ -373,6 +457,9 @@ export default function Inventory() {
                         <div className="flex gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => openImageManager(p)}>
                             <ImagePlus className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => { setEditForm(p); setEditOpen(true); }}>
+                            <Pencil className="h-4 w-4" />
                           </Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => removeProduct(p.id)}>
                             <Trash2 className="h-4 w-4" />

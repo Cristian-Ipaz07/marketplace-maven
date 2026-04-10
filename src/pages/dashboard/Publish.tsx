@@ -12,7 +12,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Play } from "lucide-react";
 import { useSubscription } from "@/hooks/useSubscription";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { CheckCircle2, PauseCircle, Eye } from "lucide-react";
 
 const categories = ["Ropa", "Accesorios", "Calzado", "Electrónica", "Hogar", "Deportes"];
 const conditions = ["Nuevo", "Usado - Como nuevo", "Usado - Buen estado"];
@@ -29,11 +30,10 @@ export default function Publish() {
   const { user } = useAuth();
   const { sub, loading: loadingSub, isExpired } = useSubscription();
   const { isAdmin, loading: loadingAdmin } = useIsAdmin();
+  const navigate = useNavigate();
   
-  const [quantity, setQuantity] = useState("10");
-  const [useProductCategory, setUseProductCategory] = useState(false);
+  const [useProductCategory, setUseProductCategory] = useState(true);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [condition, setCondition] = useState("Nuevo");
   const [options, setOptions] = useState<Record<string, boolean>>({
     hide_friends: false,
     public_place: true,
@@ -43,6 +43,8 @@ export default function Publish() {
   const [saving, setSaving] = useState(false);
   const [configId, setConfigId] = useState<string | null>(null);
   const [productCategories, setProductCategories] = useState<string[]>([]);
+  const [detectedProfile, setDetectedProfile] = useState<{id: string, name: string} | null>(null);
+  const [isBotRunning, setIsBotRunning] = useState(false);
 
   const today = dayNames[new Date().getDay()];
 
@@ -53,9 +55,7 @@ export default function Publish() {
       if (data && data.length > 0) {
         const c = data[0];
         setConfigId(c.id);
-        setQuantity(String(c.quantity));
         setSelectedCategories(c.categories || []);
-        setCondition(c.condition);
         setUseProductCategory((c as any).use_product_category ?? false);
         const opts: Record<string, boolean> = { hide_friends: false, public_place: false, door_pickup: false, door_delivery: false };
         (c.options || []).forEach((o: string) => { if (o in opts) opts[o] = true; });
@@ -69,6 +69,16 @@ export default function Publish() {
         setProductCategories(unique);
       }
     });
+
+    // Escuchar mensajes de la extensión (Perfil & Estado)
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data?.source !== "MARKETMASTER_BRIDGE") return;
+      if (e.data.action === "PROFILE_DETECTED") {
+        setDetectedProfile(e.data.payload);
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
   }, [user]);
 
   const toggleCategory = (cat: string) => {
@@ -88,9 +98,9 @@ export default function Publish() {
     const activeOptions = Object.entries(options).filter(([, v]) => v).map(([k]) => k);
     const payload = {
       user_id: user.id,
-      quantity: parseInt(quantity),
+      quantity: 9999, // default max limit handled by plan in Preview
       categories: useProductCategory ? [] as string[] : selectedCategories,
-      condition,
+      condition: "Nuevo", // Hardcoded
       options: activeOptions,
       day_of_week: today,
       use_product_category: useProductCategory,
@@ -106,95 +116,12 @@ export default function Publish() {
     }
     setSaving(false);
     if (error) { toast.error("Error guardando configuración"); console.error(error); return; }
-    const catLabel = useProductCategory ? "categoría individual por producto" : `${selectedCategories.length} categorías`;
-    toast.success(`Configuración guardada: ${quantity} publicaciones con ${catLabel}`);
+    
+    toast.success(`Configuración guardada exitosamente.`);
+    navigate("/dashboard/publish-preview");
   };
 
   const hasAccess = isAdmin || (!loadingSub && sub && !isExpired);
-
-  const handleTestPublish = async () => {
-    if (!hasAccess) {
-      toast.error("Tu suscripción ha expirado o no tienes un plan activo. Por favor, renueva tu plan para continuar.");
-      return;
-    }
-
-    toast.loading("Buscando producto y portadas...", { id: "test-publish" });
-    const today = dayNames[new Date().getDay()];
-    
-    // 1. Obtener el producto de prueba
-    const { data: product, error: productError } = await supabase
-      .from("products")
-      .select("id, title, price, description, condition, category, location, tags")
-      .eq("title", "⚡ PERFUME TEMPTATION – El Aroma de la Seducción Irresistible ⚡")
-      .limit(1)
-      .single();
-
-    if (productError || !product) {
-      toast.error("No se encontró el perfume especificado.", { id: "test-publish" });
-      return;
-    }
-
-    // 2. Obtener imágenes de galería del producto (relleno, sin portadas)
-    const { data: galleryImages } = await supabase
-      .from("product_images")
-      .select("image_url")
-      .eq("product_id", product.id)
-      .eq("is_cover", false)
-      .order("position");
-
-    // 3. Obtener portadas del día actual para la categoría del producto
-    const { data: covers } = await supabase
-      .from("daily_covers")
-      .select("id, image_url, position")
-      .eq("day_of_week", today)
-      .eq("category", product.category)
-      .order("position");
-
-    if (!covers || covers.length === 0) {
-      toast.error(`No hay portadas subidas para hoy (${today}) en la categoría "${product.category}". Ve a Portadas Diarias para agregarlas.`, { id: "test-publish" });
-      return;
-    }
-
-    toast.success(`Producto: ${product.title}. ${covers.length} portadas encontradas. Enviando...`, { id: "test-publish" });
-
-    // 4. Construir el producto formateado CON imágenes separadas
-    const formattedProduct = {
-      title: product.title,
-      price: parseInt(product.price) || 0,
-      description: product.description || "",
-      condition: product.condition || "Nuevo",
-      category: product.category || "Hogar",
-      location: product.location || "",
-      tags: product.tags ? (product.tags as string).split(",").map((t: string) => t.trim()).filter(Boolean) : [],
-      // Portadas: array de URLs (una por ciclo de publicación)
-      coverImages: covers.map((c: any) => c.image_url),
-      // Galería: fotos de relleno que siempre acompañan a cada publicación
-      galleryImages: (galleryImages || []).map((g: any) => g.image_url),
-    };
-
-    // 5. Construir AutomationTask completa con config
-    const activeOptions = Object.entries(options).filter(([, v]) => v).map(([k]) => k);
-    const automationTask = {
-      product: formattedProduct,
-      config: {
-        quantity: covers.length, // Límite duro = número de portadas disponibles hoy
-        options: activeOptions,
-        useProductCategory,
-        selectedCategories: useProductCategory ? [] : selectedCategories,
-        manualPublish: true, // El bot NO publica; espera que el usuario lo haga manualmente
-      },
-      currentIndex: 0
-    };
-
-    console.log("[MarketMaster] Enviando AutomationTask a extensión (test):", automationTask);
-
-    // 6. Disparar evento a la extensión vía postMessage (más fiable entre mundos aislados)
-    window.postMessage({ 
-      source: "MARKETMASTER_DASHBOARD", 
-      action: "START_AUTO_FILL", 
-      payload: automationTask 
-    }, "*");
-  };
 
   return (
     <div className="p-4 sm:p-8 max-w-3xl">
@@ -203,15 +130,20 @@ export default function Publish() {
           <h1 className="font-display text-xl sm:text-2xl font-bold text-foreground">Configurar publicación</h1>
           <p className="text-muted-foreground text-sm mt-1">Define los parámetros de tus publicaciones</p>
         </div>
-        <Button 
-          variant="secondary" 
-          onClick={handleTestPublish} 
-          disabled={!hasAccess || loadingSub}
-          className="bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border border-amber-500/20"
-        >
-          <Play className="h-4 w-4 mr-2" />
-          Probar Extensión
-        </Button>
+        <div className="flex items-center gap-2">
+          {detectedProfile && (
+            <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden md:flex items-center gap-1.5 h-10 px-3">
+              <CheckCircle2 className="h-4 w-4" />
+              <span>Perfil Detectado: <strong>{detectedProfile.name}</strong></span>
+            </Badge>
+          )}
+          <Button asChild size="sm" variant="outline">
+            <Link to="/dashboard/publish-preview">
+              <Eye className="h-4 w-4 mr-2" />
+              Ir a Área de Publicación
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-6">
@@ -242,23 +174,7 @@ export default function Publish() {
           </CardContent>
         </Card>
 
-        {/* Quantity */}
-        <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle className="font-display text-base">Cantidad de publicaciones</CardTitle>
-            <CardDescription>Cuántas publicaciones deseas crear en esta campaña</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Select value={quantity} onValueChange={setQuantity}>
-              <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {["5", "10", "15", "20", "30"].map((v) => (
-                  <SelectItem key={v} value={v}>{v} publicaciones</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
+        {/* Quantity and Condition cards removed -> Simplified based on subscription plan limitations */}
 
         {/* Categories */}
         <Card className="border-border/60">
@@ -304,20 +220,7 @@ export default function Publish() {
           </CardContent>
         </Card>
 
-        {/* Condition */}
-        <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle className="font-display text-base">Condición del producto</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Select value={condition} onValueChange={setCondition}>
-              <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {conditions.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
+        {/* Form elements mapped below */}
 
         {/* Marketplace Options as Switches */}
         <Card className="border-border/60">
@@ -339,7 +242,7 @@ export default function Publish() {
 
         <Button size="lg" className="w-full" onClick={handleSave} disabled={!hasAccess || saving}>
           {saving ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Rocket className="h-5 w-5 mr-2" />}
-          Guardar configuración
+          Guardar y Previsualizar
         </Button>
       </div>
     </div>

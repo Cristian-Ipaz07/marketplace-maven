@@ -13,8 +13,10 @@ interface LogEntry {
   status: string;
   error_message: string | null;
   published_at: string;
+  cover_id?: string;
   product_title?: string;
   profile_name?: string;
+  cover_url?: string;
 }
 
 export default function PublicationLogs() {
@@ -37,22 +39,26 @@ export default function PublicationLogs() {
 
     if (!data) { setLoading(false); return; }
 
-    // Fetch product and profile names
+    // Fetch product, profile and cover names
     const productIds = [...new Set(data.map((l) => l.product_id))];
     const profileIds = [...new Set(data.map((l) => l.profile_id).filter(Boolean))] as string[];
+    const coverIds = [...new Set(data.map((l) => l.cover_id).filter(Boolean))] as string[];
 
-    const [{ data: products }, { data: profiles }] = await Promise.all([
+    const [{ data: products }, { data: profiles }, { data: covers }] = await Promise.all([
       supabase.from("products").select("id, title").in("id", productIds.length > 0 ? productIds : ["00000000-0000-0000-0000-000000000000"]),
       supabase.from("connected_accounts").select("id, name").in("id", profileIds.length > 0 ? profileIds : ["00000000-0000-0000-0000-000000000000"]),
+      supabase.from("daily_covers").select("id, image_url").in("id", coverIds.length > 0 ? coverIds : ["00000000-0000-0000-0000-000000000000"])
     ]);
 
     const productMap = Object.fromEntries((products || []).map((p) => [p.id, p.title]));
     const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p.name]));
+    const coverMap = Object.fromEntries((covers || []).map((c) => [c.id, c.image_url]));
 
     setLogs(data.map((l) => ({
       ...l,
       product_title: productMap[l.product_id] || "Producto eliminado",
       profile_name: l.profile_id ? profileMap[l.profile_id] || "—" : "—",
+      cover_url: l.cover_id ? coverMap[l.cover_id] : undefined,
     })));
     setLoading(false);
   };
@@ -90,10 +96,19 @@ export default function PublicationLogs() {
           {logs.map((log) => (
             <Card key={log.id} className="border-border/60">
               <CardContent className="p-4 flex items-center gap-4">
-                {statusIcon(log.status)}
+                {log.cover_url ? (
+                  <img src={supabase.storage.from("daily-covers").getPublicUrl(log.cover_url).data.publicUrl} alt="Cover" className="h-10 w-10 shrink-0 rounded-md object-cover border border-border" />
+                ) : (
+                  <div className="h-10 w-10 shrink-0 rounded-md bg-muted flex items-center justify-center">
+                    {statusIcon(log.status)}
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground">{log.product_title}</p>
-                  <p className="text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    {log.cover_url && statusIcon(log.status)}
+                    <p className="text-sm font-medium text-foreground truncate">{log.product_title}</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     {log.category || "General"} · Perfil: {log.profile_name}
                   </p>
                 </div>
