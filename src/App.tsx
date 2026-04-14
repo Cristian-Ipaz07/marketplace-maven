@@ -20,6 +20,7 @@ import DailyCovers from "./pages/dashboard/DailyCovers";
 import PublishPreview from "./pages/dashboard/PublishPreview";
 import PublicationLogs from "./pages/dashboard/PublicationLogs";
 import AdminPanel from "./pages/dashboard/AdminPanel";
+import SalesBot from "./pages/dashboard/SalesBot";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -47,6 +48,7 @@ const App = () => (
               <Route path="publish-preview" element={<PublishPreview />} />
               <Route path="logs" element={<PublicationLogs />} />
               <Route path="admin" element={<AdminPanel />} />
+              <Route path="sales-bot" element={<SalesBot />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

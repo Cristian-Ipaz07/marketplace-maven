@@ -1,0 +1,69 @@
+{
+    "manifest_version": 3,
+    "name": "MarketMaster SalesBot IA",
+    "version": "1.0.0",
+    "description": "Bot de ventas con IA para Messenger y WhatsApp Web. Responde, cierra ventas y aprende de tu negocio.",
+    "icons": {
+        "16": "icons/icon16.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+    },
+    "permissions": [
+        "storage",
+        "tabs",
+        "activeTab"
+    ],
+    "host_permissions": [
+        "https://api.groq.com/*",
+        "https://openrouter.ai/*",
+        "https://www.facebook.com/*",
+        "https://www.messenger.com/*",
+        "https://web.whatsapp.com/*",
+        "https://*.supabase.co/*",
+        "https://*.vercel.app/*",
+        "http://localhost/*"
+    ],
+    "background": {
+        "service_worker": "background.js",
+        "type": "module"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://www.facebook.com/messages/*",
+                "https://www.messenger.com/*",
+                "https://web.whatsapp.com/*"
+            ],
+            "js": [
+                "modules/platform.js",
+                "modules/scanner.js",
+                "modules/ai_client.js",
+                "modules/inserter.js",
+                "modules/ui.js",
+                "content.js"
+            ],
+            "css": ["styles.css"],
+            "run_at": "document_idle"
+        },
+        {
+            "matches": [
+                "http://localhost:5173/*",
+                "http://localhost:3000/*",
+                "http://localhost:8080/*",
+                "https://*.vercel.app/*"
+            ],
+            "js": ["dashboard_bridge.js"],
+            "run_at": "document_idle"
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": ["icons/*", "styles.css"],
+            "matches": [
+                "https://www.facebook.com/*",
+                "https://www.messenger.com/*",
+                "https://web.whatsapp.com/*"
+            ]
+        }
+    ]
+}
