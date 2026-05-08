@@ -1,5 +1,5 @@
 import { Link, useLocation, Outlet, useNavigate } from "react-router-dom";
-import { Package, Users, Settings, CreditCard, BarChart3, LayoutDashboard, LogOut, ImageIcon, Eye, Shield, Menu, X, Info } from "lucide-react";
+import { Package, Users, Settings, CreditCard, BarChart3, LayoutDashboard, LogOut, ImageIcon, Eye, Shield, Menu, X, Info, Images } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -18,6 +18,7 @@ const navItems = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Inicio", exact: true },
   { to: "/dashboard/inventory", icon: Package, label: "Inventario" },
   { to: "/dashboard/covers", icon: ImageIcon, label: "Portadas" },
+  { to: "/dashboard/galleries", icon: Images, label: "Galerías" },
   { to: "/dashboard/profiles", icon: Users, label: "Perfiles" },
   { to: "/dashboard/publish", icon: Settings, label: "Configurar" },
   { to: "/dashboard/publish-preview", icon: Eye, label: "Publicar" },

@@ -24,6 +24,7 @@ import { PLAN_LIMITS } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface Product {
   id: string;
@@ -69,6 +70,11 @@ export default function PublishPreview() {
   const [todayPublished, setTodayPublished] = useState(0);
   const autoSelectedRef = useRef(false);
   const [detectedProfile, setDetectedProfile] = useState<{ id: string, name: string } | null>(null);
+  
+  // Multitasking & Selection State
+  const [tabSessionId] = useState(() => `session_${Math.random().toString(36).substring(2, 9)}`);
+  const [selectedDay, setSelectedDay] = useState<string>(dayNames[new Date().getDay()]);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
 
   const [profiles, setProfiles] = useState<{ id: string, name: string, chrome_profile_path: string }[]>([]);
 
@@ -98,12 +104,16 @@ export default function PublishPreview() {
     // Check inicial rápido
     check();
 
-    // Polling de respaldo
-    const interval = setInterval(check, 3000);
+    // Polling de respaldo para asegurar conexión y detección de perfil
+    const interval = setInterval(() => {
+      check();
+      if (!detectedProfile) {
+         window.postMessage({ source: "MARKETMASTER_DASHBOARD", action: "REQUEST_PROFILE_INFO" }, "*");
+      }
+    }, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [detectedProfile]);
 
-  const todayKey = dayNames[new Date().getDay()];
   const todayDate = new Date().toISOString().split("T")[0];
 
   useEffect(() => {
@@ -152,8 +162,15 @@ export default function PublishPreview() {
   useEffect(() => {
     if (!user || !selectedProfileId) return;
     setItems([]); // IMPORTANT: Clear items on profile change to prevent ghost UI
+    setSelectedIndices(new Set()); // Reset selections
+    setExecStatus("idle");
+    setExecId(null);
+    setCompletedCount(0);
+    setActiveIdx(null);
+    setIsAutomationRunning(false);
+    setTelemetryMsg("");
     loadAll();
-  }, [user, selectedProfileId]);
+  }, [user, selectedProfileId, selectedDay]);
 
   const loadAll = async () => {
     setLoading(true);
@@ -196,13 +213,19 @@ export default function PublishPreview() {
   };
 
   const loadExecution = async () => {
-    if (!user) return;
+    if (!user || !selectedProfileId || selectedProfileId === "none") {
+      setExecId(null);
+      setExecStatus("idle");
+      setCompletedCount(0);
+      return;
+    }
     const { data }: any = await withTimeout(
       supabase
         .from("campaign_executions")
         .select("*")
         .eq("user_id", user.id)
-        .eq("day_of_week", todayKey)
+        .eq("profile_id", selectedProfileId)
+        .eq("day_of_week", selectedDay)
         .gte("created_at", todayDate + "T00:00:00")
         .order("created_at", { ascending: false })
         .limit(1) as any,
@@ -213,6 +236,10 @@ export default function PublishPreview() {
       setExecId(exec.id);
       setExecStatus(exec.status as ExecStatus);
       setCompletedCount(exec.completed_count);
+    } else {
+      setExecId(null);
+      setExecStatus("idle");
+      setCompletedCount(0);
     }
   };
 
@@ -229,7 +256,7 @@ export default function PublishPreview() {
         // product_id instead of category
         .select("id, image_url, position, product_id, category")
         .eq("user_id", user.id)
-        .eq("day_of_week", todayKey)
+        .eq("day_of_week", selectedDay)
         .order("position") as any,
       5000
     );
@@ -251,14 +278,16 @@ export default function PublishPreview() {
     const { data: products }: any = await withTimeout(
       supabase
         .from("products")
-        .select("id, title, price, category, description, location, tags, condition")
+        .select("id, title, price, category, description, location, tags, condition, shared_gallery_id")
         .in("id", uniqueProductIds) as any,
       5000
     );
 
     const productsMap: Record<string, any> = {};
+    const sharedGalleryIds = new Set<string>();
     for (const p of (products || [])) {
       productsMap[p.id] = p;
+      if (p.shared_gallery_id) sharedGalleryIds.add(p.shared_gallery_id);
     }
 
     const { data: galleries }: any = await withTimeout(
@@ -270,6 +299,19 @@ export default function PublishPreview() {
         .order("position") as any,
       5000
     );
+
+    let sharedGalleriesData: any[] = [];
+    if (sharedGalleryIds.size > 0) {
+      const { data: sgData }: any = await withTimeout(
+        supabase
+          .from("shared_gallery_images")
+          .select("id, image_url, shared_gallery_id")
+          .in("shared_gallery_id", Array.from(sharedGalleryIds))
+          .order("position") as any,
+        5000
+      );
+      if (sgData) sharedGalleriesData = sgData;
+    }
 
     // Load today's successful logs to mark completed
     // SECURITY + PROFILE ISOLATION: Fetch strictly for the authenticated user and selected profile
@@ -293,7 +335,12 @@ export default function PublishPreview() {
       if (!product) continue;
 
       for (let i = 0; i < catCovers.length; i++) {
-        const productGallery = (galleries || []).filter((g) => g.product_id === product.id);
+        let productGallery = [];
+        if (product.shared_gallery_id) {
+          productGallery = sharedGalleriesData.filter((g) => g.shared_gallery_id === product.shared_gallery_id);
+        } else {
+          productGallery = (galleries || []).filter((g) => g.product_id === product.id);
+        }
         const key = `${catCovers[i].id}-${product.id}`;
 
         publishItems.push({
@@ -307,6 +354,12 @@ export default function PublishPreview() {
     }
 
     setItems(publishItems);
+    // Select all unlogged items by default
+    const newSelected = new Set<number>();
+    publishItems.forEach((it, idx) => {
+        if (!it.logged) newSelected.add(idx);
+    });
+    setSelectedIndices(newSelected);
   };
 
   const effectiveLimit = sub?.daily_limit ?? 9999;
@@ -400,6 +453,14 @@ export default function PublishPreview() {
           return;
         }
 
+        // RELAXED MATCH: Comprobar Tab Session ID (Multitarea)
+        const msgTabId = e.data.payload?.tabId;
+        
+        // Si el mensaje tiene un tabId pero no es el nuestro, lo ignoramos para mantener la multitarea aislada
+        if (msgTabId && msgTabId !== tabSessionId) {
+            return;
+        }
+
         // --- FILTRADO DE SEGURIDAD (Multi-perfil) ---
         const msgProfileId = e.data.payload?.profile_id || e.data.payload?.profileId;
 
@@ -467,39 +528,41 @@ export default function PublishPreview() {
   }, [selectedProfileId]);
 
   const dispatchToExtension = (startIdx: number, forceStart = false) => {
-    // SALTO INTELIGENTE: Solo al REANUDAR (no al iniciar)
-    // Al iniciar siempre empezar desde donde se pide, ignorando logs
+    // SALTO INTELIGENTE: Filtrar solo items seleccionados manualmente
     const selectedProfile = profiles.find(p => p.id === selectedProfileId);
-    let realStartIdx = startIdx;
-    if (!forceStart && items[startIdx]?.logged) {
-      const firstUnlogged = items.findIndex((it, idx) => idx >= startIdx && !it.logged);
-      if (firstUnlogged !== -1) {
-        realStartIdx = firstUnlogged;
-        console.log("[MarketMaster] Salto inteligente al primer ítem no publicado:", realStartIdx);
-      } else {
-        toast.info("Todos los productos de esta tanda ya han sido publicados hoy.");
-        return;
-      }
+    
+    // Obtener los índices reales de los ítems que vamos a publicar
+    const itemsToPublish = items
+      .map((item, originalIndex) => ({ item, originalIndex }))
+      .filter(({ item, originalIndex }) => selectedIndices.has(originalIndex) && !item.logged);
+
+    if (itemsToPublish.length === 0) {
+      toast.info("Todos los productos seleccionados ya han sido publicados.");
+      return;
     }
+
+    // Comenzamos desde el primer elemento de la lista filtrada
+    // Enviar listado completo al bot, él se encarga de publicar y saltar lo no seleccionado (aquí solo enviamos lo pendiente/seleccionado)
     // CRÍTICO: Enviar chrome_profile_path (no Supabase UUID) como profileId
     // La extensión compara esto contra su chromeProfileId almacenado en chrome.storage
     const selectedProfileData = profiles.find(p => p.id === selectedProfileId);
     const chromeProfilePath = selectedProfileData?.chrome_profile_path ?? null;
 
     const automationTask = {
-      items: items.map(it => ({
+      items: itemsToPublish.map(({ item }) => ({
         product: {
-          id: it.product.id,
-          title: it.product.title,
-          price: parseInt(it.product.price) || 0,
-          description: (it.product as any).description || "",
-          category: it.product.category || "Hogar",
-          condition: (it.product as any).condition || "Nuevo",
-          location: (it.product as any).location || "",
-          tags: (it.product as any).tags ? (it.product as any).tags.split(",").map((t: string) => t.trim()).filter(Boolean) : []
+          id: item.product.id,
+          title: item.product.title,
+          price: parseInt(item.product.price) || 0,
+          description: (item.product as any).description || "",
+          category: item.product.category || "Hogar",
+          condition: (item.product as any).condition || "Nuevo",
+          location: (item.product as any).location || "",
+          tags: (item.product as any).tags ? (item.product as any).tags.split(",").map((t: string) => t.trim()).filter(Boolean) : []
         },
-        cover: { id: it.cover.id, image_url: it.cover.image_url },
-        gallery: it.gallery.map(g => ({ image_url: g.image_url }))
+        cover: { id: item.cover.id, image_url: item.cover.image_url },
+        gallery: item.gallery.map(g => ({ image_url: g.image_url })),
+        originalIndex: item.originalIndex // Lo guardamos para poder actualizar UI
       })),
       config: {
         manualPublish: true,
@@ -508,12 +571,12 @@ export default function PublishPreview() {
         selectedCategories: publishConfig?.categories || []
       },
       profileId: selectedProfile?.chrome_profile_path || null,
-      currentIndex: realStartIdx
+      currentIndex: 0,
+      tabId: tabSessionId
     };
 
-
     setIsAutomationRunning(true);
-    setActiveIdx(realStartIdx);
+    setActiveIdx(itemsToPublish[0].originalIndex);
     console.log("[MarketMaster] Enviando AutomationTask a extensión (test):", automationTask);
 
     // Enviar el mensaje al bridge
@@ -533,8 +596,23 @@ export default function PublishPreview() {
 
   const handleStart = async () => {
     if (!user || blocked) return;
-    const total = Math.min(items.length, remaining);
-    const payload = { user_id: user.id, day_of_week: todayKey, total_publications: total, completed_count: 0, status: "running", started_at: new Date().toISOString() };
+    const itemsToPublishCount = Array.from(selectedIndices).filter(idx => !items[idx].logged).length;
+    const total = Math.min(itemsToPublishCount, remaining);
+    
+    if (total === 0) {
+      toast.warning("No has seleccionado ítems pendientes para publicar.");
+      return;
+    }
+
+    const payload = { 
+      user_id: user.id, 
+      profile_id: selectedProfileId,
+      day_of_week: selectedDay, 
+      total_publications: total, 
+      completed_count: 0, 
+      status: "running", 
+      started_at: new Date().toISOString() 
+    };
 
     let currentExecId = execId;
     if (execId) {
@@ -613,10 +691,22 @@ export default function PublishPreview() {
         <div>
           <h1 className="font-display text-2xl font-bold text-foreground">Preview de Publicación</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Revisa las publicaciones para hoy (<span className="capitalize text-primary font-medium">{todayKey}</span>).
+            Revisa las publicaciones para un día en específico.
           </p>
         </div>
         <div className="w-full sm:w-auto flex flex-col md:flex-row items-end md:items-center gap-3">
+          <div className="w-full sm:w-48">
+            <Select value={selectedDay} onValueChange={setSelectedDay}>
+              <SelectTrigger className="w-full font-medium">
+                <SelectValue placeholder="Día" />
+              </SelectTrigger>
+              <SelectContent>
+                {dayNames.map(d => (
+                  <SelectItem key={d} value={d} className="capitalize">{d}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           {/* Notificación persistente del Perfil que está emitiendo por el bridge local */}
           {detectedProfile && (
             <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden md:flex items-center gap-1.5 h-10 px-3">
@@ -690,7 +780,7 @@ export default function PublishPreview() {
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3 flex-wrap">
               <Badge variant="secondary" className="text-sm">{items.length} publicaciones</Badge>
-              <Badge variant="outline" className="text-sm capitalize">{todayKey}</Badge>
+              <Badge variant="outline" className="text-sm capitalize">{selectedDay}</Badge>
               {Object.entries(categoryCounts).map(([cat, count]) => (
                 <Badge key={cat} variant="outline" className="text-xs">{cat}: {count}</Badge>
               ))}
@@ -708,7 +798,7 @@ export default function PublishPreview() {
               <div className="flex flex-col gap-2 min-w-[220px]">
                 <Button
                   onClick={handleStart}
-                  disabled={blocked || items.length === 0 || selectedProfileId === "none" || profiles.length === 0 || (!bridgeOk && !bridgeChecking)}
+                  disabled={blocked || items.length === 0 || selectedIndices.size === 0 || selectedProfileId === "none" || profiles.length === 0 || (!bridgeOk && !bridgeChecking)}
                   size="lg"
                   className={cn(
                     "w-full transition-all active:scale-95",
@@ -737,7 +827,7 @@ export default function PublishPreview() {
                 </Button>
                 <div className="flex flex-col gap-1.5 ml-2">
                   <Badge className="bg-accent text-accent-foreground animate-pulse self-start">
-                    <ListChecks className="h-3 w-3 mr-1" /> Publicando... {completedCount}/{items.length}
+                    <ListChecks className="h-3 w-3 mr-1" /> Publicando... {completedCount}/{Array.from(selectedIndices).filter(idx => !items[idx].logged).length}
                   </Badge>
                   {telemetryMsg && (
                     <span className="text-xs font-mono text-muted-foreground flex items-center gap-1.5 bg-muted/50 px-2 py-1.5 rounded-md">
@@ -778,6 +868,30 @@ export default function PublishPreview() {
 
       {/* Items */}
       <div className="space-y-3">
+        {items.length > 0 && execStatus === "idle" && (
+            <div className="flex justify-between items-center bg-muted/40 p-3 rounded-lg border border-border">
+                <div className="flex items-center gap-2">
+                    <Checkbox 
+                        id="select-all" 
+                        checked={selectedIndices.size === items.filter(it => !it.logged).length && items.filter(it => !it.logged).length > 0}
+                        onCheckedChange={(checked) => {
+                            if (checked) {
+                                const newSet = new Set<number>();
+                                items.forEach((it, idx) => { if (!it.logged) newSet.add(idx) });
+                                setSelectedIndices(newSet);
+                            } else {
+                                setSelectedIndices(new Set());
+                            }
+                        }}
+                    />
+                    <label htmlFor="select-all" className="text-sm font-medium cursor-pointer">
+                        Seleccionar todos los pendientes
+                    </label>
+                </div>
+                <Badge variant="outline">{selectedIndices.size} seleccionados</Badge>
+            </div>
+        )}
+        
         {items.map((item, idx) => {
           const isCompleted = item.logged;
           const isCurrent = activeIdx === idx && isAutomationRunning;
@@ -791,8 +905,20 @@ export default function PublishPreview() {
                 isCurrent ? "border-accent ring-1 ring-accent/20 shadow-md translate-x-1" : ""
               )}
             >
-              <CardContent className="p-4">
-                <div className="flex items-start gap-4">
+              <CardContent className="p-4 flex items-center gap-4">
+                {execStatus === "idle" && !isCompleted && (
+                  <Checkbox 
+                    className="mt-1"
+                    checked={selectedIndices.has(idx)}
+                    onCheckedChange={(checked) => {
+                      const newSet = new Set(selectedIndices);
+                      if (checked) newSet.add(idx);
+                      else newSet.delete(idx);
+                      setSelectedIndices(newSet);
+                    }}
+                  />
+                )}
+                <div className="flex items-start gap-4 flex-1">
                   <div className={cn(
                     "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors",
                     isCompleted ? "bg-accent/20" : isCurrent ? "bg-accent animate-pulse" : "bg-primary/10"
@@ -839,7 +965,7 @@ export default function PublishPreview() {
         {items.length === 0 && (
           <Card className="border-border/60">
             <CardContent className="p-10 text-center text-muted-foreground">
-              <p className="text-sm">No hay portadas subidas para hoy ({todayKey}).</p>
+              <p className="text-sm">No hay portadas subidas para este día ({selectedDay}).</p>
               <p className="text-xs mt-1">Sube portadas en "Portadas Diarias" para generar publicaciones.</p>
             </CardContent>
           </Card>

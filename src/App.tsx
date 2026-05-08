@@ -20,6 +20,7 @@ import DailyCovers from "./pages/dashboard/DailyCovers";
 import PublishPreview from "./pages/dashboard/PublishPreview";
 import PublicationLogs from "./pages/dashboard/PublicationLogs";
 import AdminPanel from "./pages/dashboard/AdminPanel";
+import Galleries from "./pages/dashboard/Galleries";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -46,6 +47,7 @@ const App = () => (
               <Route path="covers" element={<DailyCovers />} />
               <Route path="publish-preview" element={<PublishPreview />} />
               <Route path="logs" element={<PublicationLogs />} />
+              <Route path="galleries" element={<Galleries />} />
               <Route path="admin" element={<AdminPanel />} />
             </Route>
             <Route path="*" element={<NotFound />} />

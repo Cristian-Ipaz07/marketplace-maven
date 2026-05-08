@@ -24,6 +24,7 @@ interface Product {
   category: string | null;
   location: string | null;
   condition: string | null;
+  shared_gallery_id?: string | null;
 }
 
 interface ProductImage {
@@ -67,12 +68,13 @@ const categories = [
   "Varios",
 ];
 
-const emptyProduct = { title: "", short_name: "", price: "", description: "", tags: "", category: "Hogar", location: "", condition: "Nuevo" };
+const emptyProduct = { title: "", short_name: "", price: "", description: "", tags: "", category: "Hogar", location: "", condition: "Nuevo", shared_gallery_id: "" };
 
 export default function Inventory() {
   const { user } = useAuth();
   const isMobile = useIsMobile();
   const [products, setProducts] = useState<Product[]>([]);
+  const [sharedGalleries, setSharedGalleries] = useState<{id: string, name: string}[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -91,12 +93,17 @@ export default function Inventory() {
   useEffect(() => {
     if (!user) return;
     const fetchProducts = async () => {
-      const { data, error } = await supabase.from("products").select("id, title, short_name, price, description, tags, category, location, condition").order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("products").select("id, title, short_name, price, description, tags, category, location, condition, shared_gallery_id").order("created_at", { ascending: false });
       if (error) { toast.error("Error cargando productos"); console.error(error); }
       else setProducts(data || []);
       setLoading(false);
     };
+    const fetchGalleries = async () => {
+      const { data, error } = await supabase.from("shared_galleries").select("id, name").order("created_at", { ascending: false });
+      if (!error && data) setSharedGalleries(data);
+    };
     fetchProducts();
+    fetchGalleries();
   }, [user]);
 
   const filtered = products.filter(
@@ -147,11 +154,14 @@ export default function Inventory() {
   const addProduct = async () => {
     if (!user || !form.title.trim()) { toast.error("El título es obligatorio"); return; }
     setSaving(true);
-    const { data, error } = await supabase.from("products").insert({
+    const payload: any = {
       user_id: user.id, title: form.title, short_name: form.short_name || null, price: form.price || "0",
       description: form.description || null, tags: form.tags || null,
       category: form.category, condition: form.condition, location: form.location || null,
-    }).select("id, title, short_name, price, description, tags, category, location, condition").single();
+    };
+    if (form.shared_gallery_id) payload.shared_gallery_id = form.shared_gallery_id;
+
+    const { data, error } = await supabase.from("products").insert(payload).select("id, title, short_name, price, description, tags, category, location, condition, shared_gallery_id").single();
     setSaving(false);
     if (error) { toast.error("Error agregando producto"); return; }
     setProducts((prev) => [data, ...prev]);
@@ -161,20 +171,40 @@ export default function Inventory() {
   };
 
   const removeProduct = async (id: string) => {
+    // 1. Limpieza en cascada del Bucket (Frontend Approach)
+    try {
+      const { data: images } = await supabase.from("product_images").select("image_url").eq("product_id", id);
+      if (images && images.length > 0) {
+        const paths = images.map(img => {
+          const parts = img.image_url.split("/product-images/");
+          return parts.length > 1 ? parts[1] : null;
+        }).filter(Boolean) as string[];
+        if (paths.length > 0) {
+          await supabase.storage.from("product-images").remove(paths);
+        }
+      }
+    } catch (err) {
+      console.warn("No se pudieron borrar algunas imágenes físicas, continuando...", err);
+    }
+
+    // 2. Borrar registro
     const { error } = await supabase.from("products").delete().eq("id", id);
     if (error) { toast.error("Error eliminando"); return; }
     setProducts((prev) => prev.filter((p) => p.id !== id));
-    toast.success("Producto eliminado");
+    toast.success("Producto eliminado y almacenamiento liberado");
   };
 
   const updateProduct = async () => {
     if (!user || !editForm || !editForm.title.trim()) { toast.error("El título es obligatorio"); return; }
     setSaving(true);
-    const { data, error } = await supabase.from("products").update({
+    const payload: any = {
       title: editForm.title, short_name: editForm.short_name || null, price: editForm.price || "0",
       description: editForm.description || null, tags: editForm.tags || null,
       category: editForm.category, condition: editForm.condition, location: editForm.location || null,
-    }).eq("id", editForm.id).select("id, title, short_name, price, description, tags, category, location, condition").single();
+      shared_gallery_id: editForm.shared_gallery_id || null
+    };
+
+    const { data, error } = await supabase.from("products").update(payload).eq("id", editForm.id).select("id, title, short_name, price, description, tags, category, location, condition, shared_gallery_id").single();
     setSaving(false);
     if (error) { toast.error("Error actualizando producto"); return; }
     setProducts((prev) => prev.map((p) => p.id === editForm.id ? data : p));
@@ -211,23 +241,32 @@ export default function Inventory() {
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || !user || !selectedProduct) return;
-    const remaining = 9 - productImages.length;
-    if (files.length > remaining) { toast.error(`Solo puedes agregar ${remaining} imágenes más (máx. 9)`); return; }
+    
+    // N-1 Fix: Contamos solo las imágenes que no son portadas para el límite de 9 de la galería.
+    const galleryImages = productImages.filter(img => !img.is_cover);
+    const remaining = 9 - galleryImages.length;
+    
+    if (files.length > remaining) { toast.error(`Solo puedes agregar ${remaining} imágenes más (máx. 9 en galería)`); return; }
     setUploadingImages(true);
     const newImages: ProductImage[] = [];
+    
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const ext = file.name.split(".").pop();
       const path = `${user.id}/${selectedProduct.id}/${Date.now()}_${i}.${ext}`;
       const { error: upErr } = await supabase.storage.from("product-images").upload(path, file);
       if (upErr) { console.error(upErr); continue; }
+      
       const { data: urlData } = supabase.storage.from("product-images").getPublicUrl(path);
-      const position = productImages.length + i;
-      const isCover = productImages.length === 0 && i === 0;
+      const maxPos = productImages.reduce((max, img) => Math.max(max, img.position), -1);
+      const position = maxPos + 1 + i;
+      const isCover = false; // Portadas se asignan desde Daily Covers
+      
       const { data: imgRow, error: dbErr } = await supabase.from("product_images").insert({
         product_id: selectedProduct.id, user_id: user.id,
         image_url: urlData.publicUrl, position, is_cover: isCover,
       }).select("id, image_url, position, is_cover").single();
+      
       if (!dbErr && imgRow) newImages.push(imgRow);
     }
     setProductImages((prev) => [...prev, ...newImages]);
@@ -292,7 +331,19 @@ export default function Inventory() {
                   <div><Label>Ubicación</Label><Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Ciudad" /></div>
                 </div>
                 <div><Label>Descripción</Label><Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Descripción" /></div>
-                <div><Label>Etiquetas</Label><Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="etiqueta1, etiqueta2" /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Etiquetas</Label><Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="etiqueta1, etiqueta2" /></div>
+                  <div>
+                    <Label>Galería de Apoyo (Opcional)</Label>
+                    <Select value={form.shared_gallery_id || "none"} onValueChange={(v) => setForm({ ...form, shared_gallery_id: v === "none" ? "" : v })}>
+                      <SelectTrigger><SelectValue placeholder="Sin galería (Imágenes propias)" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Sin galería (Imágenes propias)</SelectItem>
+                        {sharedGalleries.map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </div>
               <DialogFooter>
                 <Button onClick={addProduct} disabled={saving}>{saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Guardar</Button>
@@ -330,7 +381,19 @@ export default function Inventory() {
                 <div><Label>Ubicación</Label><Input value={editForm.location || ""} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} placeholder="Ciudad" /></div>
               </div>
               <div><Label>Descripción</Label><Input value={editForm.description || ""} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} placeholder="Descripción" /></div>
-              <div><Label>Etiquetas</Label><Input value={editForm.tags || ""} onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })} placeholder="etiqueta1, etiqueta2" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Etiquetas</Label><Input value={editForm.tags || ""} onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })} placeholder="etiqueta1, etiqueta2" /></div>
+                <div>
+                  <Label>Galería de Apoyo (Opcional)</Label>
+                  <Select value={editForm.shared_gallery_id || "none"} onValueChange={(v) => setEditForm({ ...editForm, shared_gallery_id: v === "none" ? "" : v })}>
+                    <SelectTrigger><SelectValue placeholder="Sin galería (Imágenes propias)" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin galería (Imágenes propias)</SelectItem>
+                      {sharedGalleries.map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </div>
           )}
           <DialogFooter>

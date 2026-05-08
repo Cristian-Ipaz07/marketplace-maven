@@ -11,6 +11,10 @@ export default function BotStatusIndicator() {
   const [online, setOnline] = useState(false);
   const [lastSeen, setLastSeen] = useState<Date | null>(null);
 
+  // Estados para Telemetría y Progreso
+  const [currentProgress, setCurrentProgress] = useState<{ index: number; total: number } | null>(null);
+  const [telemetryMsg, setTelemetryMsg] = useState<string>("");
+
   const checkHeartbeat = async () => {
     if (!user) return;
     const { data } = await supabase
@@ -53,6 +57,29 @@ export default function BotStatusIndicator() {
     };
   }, [user]);
 
+  // Escuchar mensajes desde el Bridge de la Extensión
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.source === "MARKETMASTER_BRIDGE") {
+        const payload = event.data.payload;
+        if (event.data.action === "ITEM_START" || event.data.action === "STATUS_UPDATE") {
+          if (payload?.index !== undefined && payload?.total !== undefined) {
+            setCurrentProgress({ index: payload.index + 1, total: payload.total });
+          }
+        } else if (event.data.action === "TELEMETRY_UPDATE") {
+          if (payload?.message) {
+            setTelemetryMsg(payload.message);
+          }
+        } else if (event.data.action === "COMPLETED") {
+           setTelemetryMsg("✅ Producto Publicado");
+        }
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
   const lastSeenStr = lastSeen
     ? (() => {
         const diff = Math.floor((Date.now() - lastSeen.getTime()) / 1000);
@@ -65,7 +92,7 @@ export default function BotStatusIndicator() {
   return (
     <Card className="border-border/60">
       <CardContent className="p-4 flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${online ? "bg-accent/10" : "bg-muted/50"}`}>
+        <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${online ? "bg-accent/10" : "bg-muted/50"}`}>
           <Monitor className={`h-5 w-5 ${online ? "text-accent" : "text-muted-foreground"}`} />
         </div>
         <div className="flex-1 min-w-0">
@@ -89,8 +116,19 @@ export default function BotStatusIndicator() {
               </>
             )}
           </div>
+          
+          {/* Banner Dinámico de Telemetría */}
+          {online && (currentProgress || telemetryMsg) && (
+            <div className="mt-2.5 flex items-center gap-2 text-xs font-semibold text-amber-500 bg-amber-500/10 py-1.5 px-3 rounded-md overflow-hidden whitespace-nowrap overflow-ellipsis border border-amber-500/20">
+               <span className="animate-spin text-sm">🔄</span>
+               <span className="truncate">
+                 {currentProgress ? `[${currentProgress.index}/${currentProgress.total}] ` : ""}
+                 {telemetryMsg ? `- ${telemetryMsg}` : "- Esperando tarea..."}
+               </span>
+            </div>
+          )}
         </div>
-        <div className={`w-2.5 h-2.5 rounded-full transition-colors ${online ? "bg-accent animate-pulse" : "bg-muted-foreground/40"}`} />
+        <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 transition-colors ${online ? "bg-accent animate-pulse" : "bg-muted-foreground/40"}`} />
       </CardContent>
     </Card>
   );
