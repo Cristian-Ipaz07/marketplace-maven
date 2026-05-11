@@ -305,8 +305,8 @@ export default function PublishPreview() {
       const { data: sgData }: any = await withTimeout(
         supabase
           .from("shared_gallery_images")
-          .select("id, image_url, shared_gallery_id")
-          .in("shared_gallery_id", Array.from(sharedGalleryIds))
+          .select("id, image_url, gallery_id")
+          .in("gallery_id", Array.from(sharedGalleryIds))
           .order("position") as any,
         5000
       );
@@ -337,7 +337,7 @@ export default function PublishPreview() {
       for (let i = 0; i < catCovers.length; i++) {
         let productGallery = [];
         if (product.shared_gallery_id) {
-          productGallery = sharedGalleriesData.filter((g) => g.shared_gallery_id === product.shared_gallery_id);
+          productGallery = sharedGalleriesData.filter((g) => g.gallery_id === product.shared_gallery_id);
         } else {
           productGallery = (galleries || []).filter((g) => g.product_id === product.id);
         }
@@ -558,7 +558,8 @@ export default function PublishPreview() {
           category: item.product.category || "Hogar",
           condition: (item.product as any).condition || "Nuevo",
           location: (item.product as any).location || "",
-          tags: (item.product as any).tags ? (item.product as any).tags.split(",").map((t: string) => t.trim()).filter(Boolean) : []
+          tags: (item.product as any).tags ? (item.product as any).tags.split(",").map((t: string) => t.trim()).filter(Boolean) : [],
+          shared_gallery_id: item.product.shared_gallery_id
         },
         cover: { id: item.cover.id, image_url: item.cover.image_url },
         gallery: item.gallery.map(g => ({ image_url: g.image_url })),

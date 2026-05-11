@@ -341,21 +341,22 @@ function GalleryCard({
   useEffect(() => {
     supabase
       .from("shared_gallery_images")
-      .select("id, image_url, position")
+      .select("image_url")
       .eq("gallery_id", gallery.id)
       .order("position")
       .limit(1)
       .then(({ data }) => {
-        setImageCount(data?.length ?? 0);
-        setPreview(data?.[0]?.image_url ?? null);
+        if (data && data.length > 0) setPreview(data[0].image_url);
       });
-    // Count separately
+  }, [gallery.id, gallery.updated_at]);
+
+  useEffect(() => {
     supabase
       .from("shared_gallery_images")
       .select("id", { count: "exact", head: true })
       .eq("gallery_id", gallery.id)
       .then(({ count }) => setImageCount(count ?? 0));
-  }, [gallery.id]);
+  }, [gallery.id, gallery.updated_at]);
 
   return (
     <Card className="border-border/60 hover:border-primary/40 transition-colors group">
