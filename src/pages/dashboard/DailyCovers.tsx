@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSubscription } from "@/hooks/useSubscription";
 import { PLAN_LIMITS } from "@/lib/plans";
+import { compressImage } from "@/utils/imageCompressor";
 
 interface Cover {
   id: string;
@@ -42,14 +43,12 @@ export default function DailyCovers() {
   const { sub, loading: loadingSub } = useSubscription();
   const [covers, setCovers] = useState<Cover[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
+  const [uploadingTargets, setUploadingTargets] = useState<Record<string, boolean>>({});
   const [clearing, setClearing] = useState(false);
   const [maxCovers, setMaxCovers] = useState(10);
   const [productsList, setProductsList] = useState<ProductInfo[]>([]);
   const [openProducts, setOpenProducts] = useState<Record<string, boolean>>({});
   const [activeDays, setActiveDays] = useState<Record<string, string>>({});
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [uploadTarget, setUploadTarget] = useState<{ day: string; product_id: string } | null>(null);
 
   const todayKey = dayNames[new Date().getDay()];
 
@@ -90,42 +89,7 @@ export default function DailyCovers() {
   const totalCoversForProductToday = (product_id: string) =>
     covers.filter((c) => c.product_id === product_id && c.day_of_week === todayKey).length;
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || !user || !uploadTarget) return;
-    const { day, product_id } = uploadTarget;
-    const existing = coversFor(product_id, day);
-    const remaining = maxCovers - existing.length;
-    if (files.length > remaining) {
-      toast.error(`Solo puedes agregar ${remaining} portadas más para este producto - ${day}`);
-      e.target.value = "";
-      return;
-    }
-    setUploading(true);
-    const newCovers: Cover[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const ext = file.name.split(".").pop();
-      const path = `${user.id}/${product_id}/${day}/${Date.now()}_${i}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("daily-covers").upload(path, file);
-      if (upErr) { console.error(upErr); continue; }
-      const { data: urlData } = supabase.storage.from("daily-covers").getPublicUrl(path);
-      const position = existing.length + i;
-      const { data: row, error: dbErr } = await supabase.from("daily_covers").insert({
-        user_id: user.id,
-        day_of_week: day,
-        image_url: urlData.publicUrl,
-        position,
-        product_id,
-      }).select("id, image_url, position, day_of_week, product_id").single();
-      if (!dbErr && row) newCovers.push(row);
-    }
-    setCovers((prev) => [...prev, ...newCovers]);
-    setUploading(false);
-    toast.success(`${newCovers.length} portada(s) subida(s)`);
-    e.target.value = "";
-    setUploadTarget(null);
-  };
+
 
   const removeCover = async (cover: Cover) => {
     await supabase.from("daily_covers").delete().eq("id", cover.id);
@@ -187,8 +151,106 @@ export default function DailyCovers() {
   };
 
   const startUpload = (product_id: string, day: string) => {
-    setUploadTarget({ day, product_id });
-    setTimeout(() => fileRef.current?.click(), 50);
+    const existing = coversFor(product_id, day);
+    const remaining = maxCovers - existing.length;
+    if (remaining <= 0) {
+      toast.error(`Ya has alcanzado el límite de ${maxCovers} portadas para este día.`);
+      return;
+    }
+
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.multiple = true;
+    
+    input.onchange = async (e) => {
+      const files = (e.target as HTMLInputElement).files;
+      if (!files || !user) return;
+
+      if (files.length > remaining) {
+        toast.error(`Solo puedes agregar ${remaining} portadas más para este producto - ${day}`);
+        return;
+      }
+
+      const targetKey = `${product_id}_${day}`;
+      setUploadingTargets((prev) => ({ ...prev, [targetKey]: true }));
+
+      try {
+        const filesArray = Array.from(files);
+        
+        // Compress all selected images to WebP in parallel
+        const compressedFiles = await Promise.all(
+          filesArray.map(async (file) => {
+            try {
+              return await compressImage(file);
+            } catch (err) {
+              console.error("Error compressing image, using original:", err);
+              return file;
+            }
+          })
+        );
+
+        // Upload and record in DB in parallel
+        const uploadPromises = compressedFiles.map(async (file, idx) => {
+          const ext = "webp"; // converted to WebP
+          const path = `${user.id}/${product_id}/${day}/${Date.now()}_${idx}.${ext}`;
+          
+          const { error: upErr } = await supabase.storage
+            .from("daily-covers")
+            .upload(path, file, {
+              contentType: "image/webp",
+              upsert: true,
+            });
+            
+          if (upErr) throw upErr;
+
+          const { data: urlData } = supabase.storage.from("daily-covers").getPublicUrl(path);
+          const position = existing.length + idx;
+
+          const { data: row, error: dbErr } = await supabase
+            .from("daily_covers")
+            .insert({
+              user_id: user.id,
+              day_of_week: day,
+              image_url: urlData.publicUrl,
+              position,
+              product_id,
+            })
+            .select("id, image_url, position, day_of_week, product_id")
+            .single();
+
+          if (dbErr || !row) throw dbErr || new Error("Error guardando portada en base de datos");
+          return row;
+        });
+
+        const results = await Promise.allSettled(uploadPromises);
+        const successfulCovers: Cover[] = [];
+        
+        results.forEach((res) => {
+          if (res.status === "fulfilled") {
+            successfulCovers.push(res.value);
+          } else {
+            console.error("Upload failed for item:", res.reason);
+          }
+        });
+
+        if (successfulCovers.length > 0) {
+          setCovers((prev) => [...prev, ...successfulCovers]);
+          toast.success(`${successfulCovers.length} portada(s) subida(s) y optimizada(s) con éxito.`);
+        }
+        
+        if (successfulCovers.length < files.length) {
+          toast.error(`${files.length - successfulCovers.length} portada(s) fallaron al subirse.`);
+        }
+      } catch (error) {
+        console.error("Error en el proceso de subida:", error);
+        toast.error("Ocurrió un error al procesar o subir las portadas.");
+      } finally {
+        setUploadingTargets((prev) => ({ ...prev, [targetKey]: false }));
+      }
+    };
+
+    input.click();
   };
 
   const toggleProduct = (prodId: string) => {
@@ -229,7 +291,7 @@ export default function DailyCovers() {
         </CardContent>
       </Card>
 
-      <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleUpload} />
+
 
       {productsList.length === 0 ? (
         <Card className="border-border/60">
@@ -314,8 +376,8 @@ export default function DailyCovers() {
                                     </Button>
                                   )}
                                   {dayCvrs.length < maxCovers && (
-                                    <Button size="sm" variant="secondary" className="h-8 text-xs" onClick={() => startUpload(prod.id, d.key)} disabled={uploading && uploadTarget?.product_id === prod.id && uploadTarget?.day === d.key}>
-                                      {uploading && uploadTarget?.product_id === prod.id && uploadTarget?.day === d.key ? <Loader2 className="h-3 w-3 sm:mr-1.5 animate-spin" /> : <ImagePlus className="h-3 w-3 sm:mr-1.5" />}
+                                    <Button size="sm" variant="secondary" className="h-8 text-xs" onClick={() => startUpload(prod.id, d.key)} disabled={uploadingTargets[`${prod.id}_${d.key}`]}>
+                                      {uploadingTargets[`${prod.id}_${d.key}`] ? <Loader2 className="h-3 w-3 sm:mr-1.5 animate-spin" /> : <ImagePlus className="h-3 w-3 sm:mr-1.5" />}
                                       <span className="hidden sm:inline">Subir</span>
                                     </Button>
                                   )}

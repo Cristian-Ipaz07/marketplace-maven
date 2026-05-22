@@ -13,6 +13,7 @@ import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { compressImage } from "@/utils/imageCompressor";
 
 interface Product {
   id: string;
@@ -184,10 +185,26 @@ export default function Inventory() {
         }
       }
     } catch (err) {
-      console.warn("No se pudieron borrar algunas imágenes físicas, continuando...", err);
+      console.warn("No se pudieron borrar algunas imágenes físicas del producto, continuando...", err);
     }
 
-    // 2. Borrar registro
+    // 1.5. Limpieza de Portadas Diarias en Storage para evitar huérfanos
+    try {
+      const { data: covers } = await supabase.from("daily_covers").select("image_url").eq("product_id", id);
+      if (covers && covers.length > 0) {
+        const paths = covers.map(cover => {
+          const parts = cover.image_url.split("/daily-covers/");
+          return parts.length > 1 ? parts[1] : null;
+        }).filter(Boolean) as string[];
+        if (paths.length > 0) {
+          await supabase.storage.from("daily-covers").remove(paths);
+        }
+      }
+    } catch (err) {
+      console.warn("No se pudieron borrar las portadas físicas de calendario, continuando...", err);
+    }
+
+    // 2. Borrar registro (la BD borrará en cascada las filas de product_images y daily_covers por FK)
     const { error } = await supabase.from("products").delete().eq("id", id);
     if (error) { toast.error("Error eliminando"); return; }
     setProducts((prev) => prev.filter((p) => p.id !== id));
@@ -250,25 +267,44 @@ export default function Inventory() {
     setUploadingImages(true);
     const newImages: ProductImage[] = [];
     
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const ext = file.name.split(".").pop();
-      const path = `${user.id}/${selectedProduct.id}/${Date.now()}_${i}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("product-images").upload(path, file);
-      if (upErr) { console.error(upErr); continue; }
+    // Convert to array and compress all files first
+    const compressedFiles = await Promise.all(
+      Array.from(files).slice(0, remaining).map(file => compressImage(file))
+    );
+
+    const maxPos = productImages.reduce((max, img) => Math.max(max, img.position), -1);
+
+    // Upload in parallel
+    const uploadPromises = compressedFiles.map(async (file, i) => {
+      const ext = "webp"; // We know it's webp after compression
+      const path = `${user.id}/${selectedProduct.id}/${Date.now()}_${i}.webp`;
+      
+      const { error: upErr } = await supabase.storage
+        .from("product-images")
+        .upload(path, file, {
+          contentType: "image/webp",
+          upsert: true,
+        });
+      if (upErr) { console.error(upErr); return null; }
       
       const { data: urlData } = supabase.storage.from("product-images").getPublicUrl(path);
-      const maxPos = productImages.reduce((max, img) => Math.max(max, img.position), -1);
       const position = maxPos + 1 + i;
-      const isCover = false; // Portadas se asignan desde Daily Covers
+      const isCover = false;
       
       const { data: imgRow, error: dbErr } = await supabase.from("product_images").insert({
         product_id: selectedProduct.id, user_id: user.id,
         image_url: urlData.publicUrl, position, is_cover: isCover,
       }).select("id, image_url, position, is_cover").single();
       
-      if (!dbErr && imgRow) newImages.push(imgRow);
-    }
+      if (!dbErr && imgRow) return imgRow;
+      return null;
+    });
+
+    const results = await Promise.all(uploadPromises);
+    const validImages = results.filter((r): r is ProductImage => r !== null);
+    
+    newImages.push(...validImages);
+
     setProductImages((prev) => [...prev, ...newImages]);
     setUploadingImages(false);
     toast.success(`${newImages.length} imagen(es) subida(s)`);

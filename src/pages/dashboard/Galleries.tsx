@@ -9,6 +9,7 @@ import { ImagePlus, Plus, Trash2, Loader2, X, Images, Pencil } from "lucide-reac
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { compressImage } from "@/utils/imageCompressor";
 
 interface Gallery {
   id: string;
@@ -140,20 +141,40 @@ export default function Galleries() {
     const newImages: GalleryImage[] = [];
     const maxPos = images.reduce((max, img) => Math.max(max, img.position), -1);
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const ext = file.name.split(".").pop();
-      const path = `${user.id}/${activeGallery.id}/${Date.now()}_${i}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("gallery-images").upload(path, file);
-      if (upErr) { console.error(upErr); continue; }
+    // Compress all files first
+    const compressedFiles = await Promise.all(
+      Array.from(files).slice(0, remaining).map(file => compressImage(file))
+    );
+
+    // Upload in parallel
+    const uploadPromises = compressedFiles.map(async (file, i) => {
+      const ext = "webp";
+      const path = `${user.id}/${activeGallery.id}/${Date.now()}_${i}.webp`;
+      
+      const { error: upErr } = await supabase.storage
+        .from("gallery-images")
+        .upload(path, file, {
+          contentType: "image/webp",
+          upsert: true,
+        });
+      if (upErr) { console.error(upErr); return null; }
+      
       const { data: urlData } = supabase.storage.from("gallery-images").getPublicUrl(path);
+      
       const { data: row, error: dbErr } = await supabase
         .from("shared_gallery_images")
         .insert({ gallery_id: activeGallery.id, user_id: user.id, image_url: urlData.publicUrl, position: maxPos + 1 + i })
         .select("id, image_url, position")
         .single();
-      if (!dbErr && row) newImages.push(row);
-    }
+        
+      if (!dbErr && row) return row;
+      return null;
+    });
+
+    const results = await Promise.all(uploadPromises);
+    const validImages = results.filter((r): r is GalleryImage => r !== null);
+    
+    newImages.push(...validImages);
 
     setImages(prev => [...prev, ...newImages]);
     setUploading(false);

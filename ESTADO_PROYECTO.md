@@ -1,5 +1,5 @@
 # 📋 Estado del Proyecto — Market Master (CoverGen Extension)
-> Última actualización: 2026-05-08 | Rama activa: `feat-autonomia-total`
+> Última actualización: 2026-05-22 | Rama activa: `feat-autonomia-total`
 
 ---
 
@@ -14,7 +14,11 @@ Bot de automatización para publicación masiva en **Facebook Marketplace** usan
 |---|---|---|
 | **Auto-ciclo** | ✅ OK | El bot reinicia solo cada vuelta sin intervención manual |
 | **Reutilización de pestaña** | ✅ OK | No abre pestañas nuevas; usa `mm_session` en la URL |
-| **Imágenes** | ✅ OK | Carga secuencial con 3 reintentos por imagen; espera visual con MutationObserver |
+| **Conversión WebP en Cliente** | ✅ OK | Compresión robusta mediante canvas en cliente. Los eventos de carga se definen antes de `img.src` para evitar omisiones de eventos. |
+| **Aislamiento Multitarea** | ✅ OK | Subida de portadas con inputs dinámicos en memoria. Permite subir fotos el martes, cambiar de pestaña de forma inmediata y subir el miércoles concurrentemente sin colisiones de estado. |
+| **Optimización de Egress (Caché)** | ✅ OK | Caché global en memoria de Base64 para imágenes de galería y portadas. Evita descargas duplicadas de Supabase Storage en campañas repetidas o multi-perfil. |
+| **Recolección de Basura física** | ✅ OK | Eliminación de un producto en Inventario borra físicamente de forma automática todas sus portadas asociadas en el bucket `daily-covers`. |
+| **Imágenes en Extensión** | ✅ OK | Carga secuencial con 3 reintentos por imagen; espera visual con MutationObserver |
 | **Título / Precio** | ✅ OK | Inyección con `smartFill`, funciona de fondo |
 | **Descripción** | ✅ OK | Inyección correcta |
 | **Estado (Nuevo)** | ✅ OK | Selector funcional |
@@ -40,19 +44,23 @@ Bot de automatización para publicación masiva en **Facebook Marketplace** usan
 
 ---
 
-## 📁 Archivos Clave de la Extensión
+## 📁 Archivos Clave de la Extensión y Aplicación
 
 ```
+src/
+├── pages/dashboard/
+│   ├── DailyCovers.tsx          ← Portadas Diarias: subidas aisladas por target y compresión en paralelo
+│   ├── Inventory.tsx            ← Inventario: CRUD de productos, subida WebP y Garbage Collector en delete
+│   ├── Galleries.tsx            ← Galerías de apoyo: CRUD completo y subida optimizada
+│   └── PublishPreview.tsx       ← Vista previsualización: inyección de Base64 a extensión con caché local
+├── utils/
+│   └── imageCompressor.ts       ← Helper de canvas: compresión robusta a WebP
 extension/
 ├── content_script_bridge.js     ← Comunicación Dashboard↔FB, banner de estado, auto-trigger por mm_session
 ├── modules/
 │   ├── automation.js            ← FLUJO CENTRAL: fillProduct(), prepareImages(), auto-publicar
 │   └── fields/
 │       ├── tags.js              ← Inyección de etiquetas (problema de fondo)
-│       ├── location.js          ← Campo Ubicación con smart-split barrio/ciudad
-│       ├── category.js          ← Selector de categoría con fallback "Hogar"
-│       ├── condition.js         ← Campo Estado (Nuevo/Usado)
-│       └── delivery.js          ← Switches de preferencias de entrega
 ```
 
 ---
@@ -62,14 +70,16 @@ extension/
 ```
 Dashboard → "Iniciar Publicación"
     ↓
-chrome.storage: guarda task {items[], currentIndex, tabId, profileId}
+Carga de imágenes del día desde Supabase → Conversión a Base64 usando caché (urlToBase64)
+    ↓
+chrome.storage: guarda task {items[], currentIndex, tabId, profileId} (con imágenes ya en Base64 para Cero Egress)
     ↓
 FB: facebook.com/marketplace/create/item?mm_session=SESSION_ID
     ↓
 content_script_bridge.js detecta mm_session → dispara fillProduct()
     ↓
 automation.js.fillProduct():
-  1. prepareImages()     → descarga secuencial con 3 reintentos
+  1. prepareImages()     → carga instantánea de Base64 almacenados en local storage (cero consumo de red de Supabase)
   2. injectImagesInstant() → DataTransfer en input[multiple]
   3. Espera carga visual (MutationObserver, máx 30s)
   4. smartFill(Título)
@@ -92,14 +102,17 @@ automation.js.fillProduct():
 
 ---
 
-## 🏗️ Funcionalidad Pendiente de Implementar
+## 🏗️ Optimizaciones Recientes Implementadas (Blindaje de Supabase Plan Free)
 
-### 📸 Galería de Imágenes de Apoyo Compartida
-**Qué es**: Módulo para gestionar conjuntos de imágenes reutilizables ("Lociones Hombre", "Chaquetas", etc.).
-**Estado**: ✅ **COMPLETADO**.
-- La página `/dashboard/galleries` permite gestionar galerías e imágenes (CRUD completo).
-- Los productos en el Inventario pueden enlazarse a una galería (el campo `shared_gallery_id` en Supabase se usa para esto).
-- El bot (en `automation.js`) carga las imágenes propias del producto y luego añade las de la galería compartida hasta completar el límite de 10 imágenes permitidas por Facebook.
+### 1. Conversión de Mime-Type e Inferencia de WebP
+- Corregido el bug del listener de carga en `imageCompressor.ts` asignando `onload`/`onerror` antes de `src`.
+- Configurado `{ contentType: "image/webp", upsert: true }` explícitamente en todas las subidas para asegurar almacenamiento optimizado en Supabase Storage.
+
+### 2. Recolección de Basura de Almacenamiento
+- Al eliminar un producto, todas las portadas en el bucket `daily-covers` asociadas a este producto se eliminan físicamente de manera proactiva.
+
+### 3. Caché de Base64 local (Dashboard)
+- Evita descargas redundantes de imágenes por cada ejecución de campaña, protegiendo la cuota mensual de 5GB de Egress/Cache egress del plan gratuito.
 
 ---
 
@@ -107,27 +120,6 @@ automation.js.fillProduct():
 
 - Tabla `publication_logs`: registra cada publicación con `product_id`, `cover_id`, `status` ('success'|'error'|'unconfirmed'), `profile_id`
 - Tabla `profiles`: perfiles de publicación con `id`, `name`, etc.
-- `002_add_profile_executions.sql`: migración pendiente de aplicar
-
----
-
-## 🔧 Configuración de Automatización (config object)
-
-```js
-config = {
-  options: ['public_place', 'door_pickup', 'door_delivery', 'hide_friends'],
-  selectedCategories: ['Ropa y calzado de hombre'],
-  useProductCategory: true,  // false = categoría aleatoria del array
-  manualPublish: false,       // DEPRECADO — ahora siempre es automático
-}
-```
-
----
-
-## 💡 Notas para Próxima Sesión
-
-1. **Tags en fondo**: La solución real requiere usar la Chrome Extensions API `chrome.debugger` o `chrome.tabs.sendMessage` con permisos de `activeTab` para poder inyectar eventos en pestañas de fondo. Es una refactorización mayor.
-
-2. **Galería de apoyo**: Implementar en `automation.js` que al hacer `prepareImages()`, si el item tiene `gallery_id`, se carguen también las imágenes de esa galería desde Supabase/storage y se concatenen al array de imágenes del producto.
-
-3. **Selector de delivery**: Si Facebook cambia los textos de los switches, actualizar en `automation.js` las líneas 515-519 (los 4 `toggleOptionByName`).
+- Tabla `daily_covers`: mapea las portadas de calendario asignadas a productos por día.
+- Tabla `shared_gallery_images`: imágenes asociadas a galerías compartidas.
+- Tabla `products`: inventario con campo `shared_gallery_id`.

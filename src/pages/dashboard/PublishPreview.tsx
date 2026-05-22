@@ -58,6 +58,9 @@ type ExecStatus = "idle" | "running" | "paused" | "completed";
 
 const dayNames = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
 
+// Cache en memoria para Base64 de las imágenes y evitar consumo de egress redundante en Supabase
+const base64Cache: Record<string, string> = {};
+
 export default function PublishPreview() {
   const { user } = useAuth();
   const { isExpired: subExpired, sub } = useSubscription();
@@ -385,24 +388,35 @@ export default function PublishPreview() {
 
           // INDEPENDENCIA TOTAL: Solo actualizar si el log pertenece al perfil seleccionado
           if (log.profile_id === selectedProfileId) {
-            setCompletedCount(prev => prev + 1);
-            setTodayPublished(prev => prev + 1);
+            
+            // VERIFICAR QUE EL LOG PERTENECE AL DÍA ACTUAL VISIBLE EN LA UI
+            setItems(prevItems => {
+              const itemExists = prevItems.some(item => item.product.id === log.product_id && item.cover.id === log.cover_id);
+              
+              if (itemExists) {
+                setCompletedCount(prev => {
+                  const newCount = prev + 1;
+                  // Actualizar ejecución en DB
+                  if (execId) {
+                    supabase.from("campaign_executions")
+                      .update({ completed_count: newCount })
+                      .eq("id", execId)
+                      .then(() => { });
+                  }
+                  return newCount;
+                });
+                setTodayPublished(prev => prev + 1);
 
-            // Actualizar estado VISUAL del item en la lista
-            setItems(prevItems => prevItems.map(item => {
-              if (item.product.id === log.product_id && item.cover.id === log.cover_id) {
-                return { ...item, logged: true };
+                return prevItems.map(item => {
+                  if (item.product.id === log.product_id && item.cover.id === log.cover_id) {
+                    return { ...item, logged: true };
+                  }
+                  return item;
+                });
               }
-              return item;
-            }));
-
-            // Actualizar ejecución en DB
-            if (execId) {
-              supabase.from("campaign_executions")
-                .update({ completed_count: completedCount + 1 })
-                .eq("id", execId)
-                .then(() => { });
-            }
+              
+              return prevItems;
+            });
           }
         }
       })
@@ -411,7 +425,7 @@ export default function PublishPreview() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, execId, completedCount, selectedProfileId]);
+  }, [user, execId, selectedProfileId]);
 
   // Telemetry Listener (Separate from public-logs to avoid bugs)
   useEffect(() => {
@@ -527,7 +541,7 @@ export default function PublishPreview() {
     return () => window.removeEventListener("message", handleBridgeMessage);
   }, [selectedProfileId]);
 
-  const dispatchToExtension = (startIdx: number, forceStart = false) => {
+  const dispatchToExtension = async (startIdx: number, forceStart = false) => {
     // SALTO INTELIGENTE: Filtrar solo items seleccionados manualmente
     const selectedProfile = profiles.find(p => p.id === selectedProfileId);
     
@@ -548,8 +562,40 @@ export default function PublishPreview() {
     const selectedProfileData = profiles.find(p => p.id === selectedProfileId);
     const chromeProfilePath = selectedProfileData?.chrome_profile_path ?? null;
 
-    const automationTask = {
-      items: itemsToPublish.map(({ item }) => ({
+    setIsAutomationRunning(true);
+    setActiveIdx(itemsToPublish[0].originalIndex);
+    toast.loading("Preparando imágenes...");
+
+    // Convertir imágenes de galería y portada a Base64 para Cero Egress en múltiples perfiles
+    const mappedItems = await Promise.all(itemsToPublish.map(async ({ item }) => {
+      // Función helper para convertir URL a Base64 (con soporte para caché local)
+      const urlToBase64 = async (url: string) => {
+        if (base64Cache[url]) {
+          return base64Cache[url];
+        }
+        try {
+          const res = await fetch(url);
+          const blob = await res.blob();
+          const base64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+          });
+          base64Cache[url] = base64;
+          return base64;
+        } catch (e) {
+          console.error("Failed to convert image to base64", e);
+          return url; // Fallback original URL
+        }
+      };
+
+      const galleryBase64 = await Promise.all(item.gallery.map(async (g) => {
+        return { image_url: await urlToBase64(g.image_url) };
+      }));
+
+      const coverBase64Url = await urlToBase64(item.cover.image_url);
+
+      return {
         product: {
           id: item.product.id,
           title: item.product.title,
@@ -561,23 +607,27 @@ export default function PublishPreview() {
           tags: (item.product as any).tags ? (item.product as any).tags.split(",").map((t: string) => t.trim()).filter(Boolean) : [],
           shared_gallery_id: item.product.shared_gallery_id
         },
-        cover: { id: item.cover.id, image_url: item.cover.image_url },
-        gallery: item.gallery.map(g => ({ image_url: g.image_url })),
-        originalIndex: item.originalIndex // Lo guardamos para poder actualizar UI
-      })),
+        cover: { id: item.cover.id, image_url: coverBase64Url },
+        gallery: galleryBase64,
+        originalIndex: item.originalIndex
+      };
+    }));
+
+    toast.dismiss();
+
+    const automationTask = {
+      items: mappedItems,
       config: {
         manualPublish: true,
         options: publishConfig?.options || ["public_place", "hide_friends"],
         useProductCategory: publishConfig?.use_product_category ?? true,
         selectedCategories: publishConfig?.categories || []
       },
-      profileId: selectedProfile?.chrome_profile_path || null,
+      profileId: chromeProfilePath,
       currentIndex: 0,
       tabId: tabSessionId
     };
 
-    setIsAutomationRunning(true);
-    setActiveIdx(itemsToPublish[0].originalIndex);
     console.log("[MarketMaster] Enviando AutomationTask a extensión (test):", automationTask);
 
     // Enviar el mensaje al bridge
