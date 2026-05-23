@@ -22,7 +22,7 @@ Bot de automatización para publicación masiva en **Facebook Marketplace** usan
 | **Título / Precio** | ✅ OK | Inyección con `smartFill`, funciona de fondo |
 | **Descripción** | ✅ OK | Inyección correcta |
 | **Estado (Nuevo)** | ✅ OK | Selector funcional |
-| **Categoría** | ✅ OK | Con fallback a "Hogar" si falla la original |
+| **Categoría** | ✅ OK | Búsqueda global robusta en todo el DOM (`[role="option"]`) con texto flexible y pausa para corrección manual |
 | **Ubicación** | ✅ OK | Busca por barrio primero ("Centro" → selecciona "Centro, Pasto") |
 | **Switches Entrega** | ✅ OK | Usa textos exactos de FB: "Encuentro en un lugar público", "Recogida en la puerta", "Entrega en la puerta" |
 | **Auto-publicar** | ✅ OK | Click en Siguiente → Publicar → espera redirect → ciclo siguiente |
@@ -113,6 +113,12 @@ automation.js.fillProduct():
 
 ### 3. Caché de Base64 local (Dashboard)
 - Evita descargas redundantes de imágenes por cada ejecución de campaña, protegiendo la cuota mensual de 5GB de Egress/Cache egress del plan gratuito.
+
+### 4. Búsqueda Robusta de Categoría y Estado
+- Refactorizado el módulo de `category.js` para usar un motor de búsqueda global en el DOM. En lugar de limitarse a un contenedor "listbox/dialog" que puede variar o seleccionar componentes equivocados (por el Virtual DOM de FB), busca activamente todos los elementos `[role="option"]` visibles en pantalla de manera iterativa.
+- Normalización avanzada de strings (eliminación de acentos y consideración de textos inyectados como "Envío disponible").
+- El módulo de Estado (`condition.js`) ahora lee dinámicamente la configuración proveniente del producto (`Usado - Como nuevo`, etc.) en lugar de inyectar siempre "Nuevo".
+- Loop de pausa inteligente: si una categoría falla por alguna razón externa, el bot se pausa vigilando el botón "Siguiente", permitiendo corrección manual sin cancelar la automatización.
 
 ---
 

@@ -95,7 +95,9 @@ export default function PublishPreview() {
   // Monitor del bridge (detección de extensión)
   useEffect(() => {
     // 1. Saludo inicial para despertar a la extensión inmediatamente
-    window.postMessage({ source: "MARKETMASTER_DASHBOARD", action: "REQUEST_PROFILE_INFO" }, "*");
+    if (!detectedProfile) {
+        window.postMessage({ source: "MARKETMASTER_DASHBOARD", action: "REQUEST_PROFILE_INFO" }, "*");
+    }
 
     const check = () => {
       // El bridge inyecta este marcador si está vivo y funcional
@@ -115,7 +117,7 @@ export default function PublishPreview() {
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [detectedProfile]);
+  }, [detectedProfile?.id]); // Usar el ID para evitar loops infinitos por referencias a objetos nuevos
 
   const todayDate = new Date().toISOString().split("T")[0];
 
@@ -222,6 +224,13 @@ export default function PublishPreview() {
       setCompletedCount(0);
       return;
     }
+
+    // Ventana de 7 días para encontrar ejecuciones de días anteriores de la semana actual.
+    // Esto permite seleccionar "lunes" hoy siendo sábado y encontrar la ejecución correcta.
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const weekAgoDate = weekAgo.toISOString().split("T")[0];
+
     const { data }: any = await withTimeout(
       supabase
         .from("campaign_executions")
@@ -229,7 +238,7 @@ export default function PublishPreview() {
         .eq("user_id", user.id)
         .eq("profile_id", selectedProfileId)
         .eq("day_of_week", selectedDay)
-        .gte("created_at", todayDate + "T00:00:00")
+        .gte("created_at", weekAgoDate + "T00:00:00")
         .order("created_at", { ascending: false })
         .limit(1) as any,
       5000
@@ -566,83 +575,96 @@ export default function PublishPreview() {
     setActiveIdx(itemsToPublish[0].originalIndex);
     toast.loading("Preparando imágenes...");
 
-    // Convertir imágenes de galería y portada a Base64 para Cero Egress en múltiples perfiles
-    const mappedItems = await Promise.all(itemsToPublish.map(async ({ item }) => {
-      // Función helper para convertir URL a Base64 (con soporte para caché local)
-      const urlToBase64 = async (url: string) => {
-        if (base64Cache[url]) {
-          return base64Cache[url];
-        }
-        try {
-          const res = await fetch(url);
-          const blob = await res.blob();
-          const base64 = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(blob);
-          });
-          base64Cache[url] = base64;
-          return base64;
-        } catch (e) {
-          console.error("Failed to convert image to base64", e);
-          return url; // Fallback original URL
-        }
-      };
+    console.log("[MarketMaster] Iniciando conversión de imágenes a Base64 para", itemsToPublish.length, "ítems.");
 
-      const galleryBase64 = await Promise.all(item.gallery.map(async (g) => {
-        return { image_url: await urlToBase64(g.image_url) };
+    try {
+      // Convertir imágenes de galería y portada a Base64 para Cero Egress en múltiples perfiles
+      const mappedItems = await Promise.all(itemsToPublish.map(async ({ item }) => {
+        // Función helper para convertir URL a Base64 (con soporte para caché local)
+        const urlToBase64 = async (url: string) => {
+          if (!url) return url;
+          if (base64Cache[url]) {
+            return base64Cache[url];
+          }
+          try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            const base64 = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(blob);
+            });
+            base64Cache[url] = base64;
+            return base64;
+          } catch (e) {
+            console.error("Failed to convert image to base64", url, e);
+            return url; // Fallback original URL
+          }
+        };
+
+        const galleryBase64 = await Promise.all(item.gallery.map(async (g) => {
+          return { image_url: await urlToBase64(g.image_url) };
+        }));
+
+        const coverBase64Url = await urlToBase64(item.cover?.image_url);
+
+        return {
+          product: {
+            id: item.product.id,
+            title: item.product.title,
+            price: parseInt(item.product.price) || 0,
+            description: (item.product as any).description || "",
+            category: item.product.category || "Hogar",
+            condition: (item.product as any).condition || "Nuevo",
+            location: (item.product as any).location || "",
+            tags: (item.product as any).tags ? (item.product as any).tags.split(",").map((t: string) => t.trim()).filter(Boolean) : [],
+            shared_gallery_id: item.product.shared_gallery_id
+          },
+          cover: { id: item.cover?.id, image_url: coverBase64Url },
+          gallery: galleryBase64,
+          originalIndex: item.originalIndex
+        };
       }));
 
-      const coverBase64Url = await urlToBase64(item.cover.image_url);
+      toast.dismiss();
 
-      return {
-        product: {
-          id: item.product.id,
-          title: item.product.title,
-          price: parseInt(item.product.price) || 0,
-          description: (item.product as any).description || "",
-          category: item.product.category || "Hogar",
-          condition: (item.product as any).condition || "Nuevo",
-          location: (item.product as any).location || "",
-          tags: (item.product as any).tags ? (item.product as any).tags.split(",").map((t: string) => t.trim()).filter(Boolean) : [],
-          shared_gallery_id: item.product.shared_gallery_id
+      const automationTask = {
+        items: mappedItems,
+        config: {
+          manualPublish: true,
+          options: publishConfig?.options || ["public_place", "hide_friends"],
+          useProductCategory: publishConfig?.use_product_category ?? true,
+          selectedCategories: publishConfig?.categories || []
         },
-        cover: { id: item.cover.id, image_url: coverBase64Url },
-        gallery: galleryBase64,
-        originalIndex: item.originalIndex
+        profileId: chromeProfilePath,
+        currentIndex: 0,
+        tabId: tabSessionId
       };
-    }));
 
-    toast.dismiss();
+      console.log("[MarketMaster] Enviando AutomationTask a extensión:", automationTask);
 
-    const automationTask = {
-      items: mappedItems,
-      config: {
-        manualPublish: true,
-        options: publishConfig?.options || ["public_place", "hide_friends"],
-        useProductCategory: publishConfig?.use_product_category ?? true,
-        selectedCategories: publishConfig?.categories || []
-      },
-      profileId: chromeProfilePath,
-      currentIndex: 0,
-      tabId: tabSessionId
-    };
+      // Enviar el mensaje al bridge
+      window.postMessage({
+        source: "MARKETMASTER_DASHBOARD",
+        action: "START_AUTO_FILL",
+        payload: automationTask
+      }, "*");
 
-    console.log("[MarketMaster] Enviando AutomationTask a extensión (test):", automationTask);
+      // Si el bridge no responde en 3s, alertar al usuario
+      setTimeout(() => {
+        if (!document.querySelector('#mmaster-bridge-ok')) {
+          toast.warning("⚠️ La extensión no responde. Recarga esta página (F5) e inténtalo de nuevo.");
+        }
+      }, 3000);
 
-    // Enviar el mensaje al bridge
-    window.postMessage({
-      source: "MARKETMASTER_DASHBOARD",
-      action: "START_AUTO_FILL",
-      payload: automationTask
-    }, "*");
-
-    // Si el bridge no responde en 3s, alertar al usuario
-    setTimeout(() => {
-      if (!document.querySelector('#mmaster-bridge-ok')) {
-        toast.warning("⚠️ La extensión no responde. Recarga esta página (F5) e inténtalo de nuevo.");
-      }
-    }, 3000);
+    } catch (err) {
+      console.error("[MarketMaster] Error crítico preparando publicación:", err);
+      toast.dismiss();
+      toast.error("Error al preparar las imágenes. Revisa la consola.");
+      setIsAutomationRunning(false);
+      setActiveIdx(null);
+    }
   };
 
   const handleStart = async () => {
@@ -697,6 +719,9 @@ export default function PublishPreview() {
     if (!execId) return;
     await withTimeout(supabase.from("campaign_executions").update({ status: "running", paused_at: null } as any).eq("id", execId) as any, 5000);
     setExecStatus("running");
+
+    // 1. Desactivar la bandera de pausa en la extensión ANTES de despachar la cola
+    window.postMessage({ source: "MARKETMASTER_DASHBOARD", action: "RESUME_AUTOMATION" }, "*");
 
     dispatchToExtension(completedCount); // resume: usar smart-skip normal
     toast.success(`Campaña reanudada desde #${completedCount + 1}.`);
