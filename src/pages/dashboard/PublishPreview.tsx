@@ -25,6 +25,25 @@ import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useCachedImage } from "@/hooks/useCachedImage";
+import { urlToBase64Cached } from "@/utils/imageCache";
+
+const CachedCoverImage = ({ url, alt, className }: { url: string; alt: string; className?: string }) => {
+  const { objectUrl, loading } = useCachedImage(url);
+  
+  return (
+    <>
+      {loading ? (
+        <div className="w-full h-full flex items-center justify-center bg-muted">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <img src={objectUrl} alt={alt} className={className} />
+      )}
+    </>
+  );
+};
+
 
 interface Product {
   id: string;
@@ -58,8 +77,8 @@ type ExecStatus = "idle" | "running" | "paused" | "completed";
 
 const dayNames = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
 
-// Cache en memoria para Base64 de las imágenes y evitar consumo de egress redundante en Supabase
-const base64Cache: Record<string, string> = {};
+// base64Cache was removed in favor of localforage via imageCache
+
 
 export default function PublishPreview() {
   const { user } = useAuth();
@@ -580,27 +599,9 @@ export default function PublishPreview() {
     try {
       // Convertir imágenes de galería y portada a Base64 para Cero Egress en múltiples perfiles
       const mappedItems = await Promise.all(itemsToPublish.map(async ({ item }) => {
-        // Función helper para convertir URL a Base64 (con soporte para caché local)
+        // Utilizamos urlToBase64Cached que almacena en IndexedDB
         const urlToBase64 = async (url: string) => {
-          if (!url) return url;
-          if (base64Cache[url]) {
-            return base64Cache[url];
-          }
-          try {
-            const res = await fetch(url);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const blob = await res.blob();
-            const base64 = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result as string);
-              reader.readAsDataURL(blob);
-            });
-            base64Cache[url] = base64;
-            return base64;
-          } catch (e) {
-            console.error("Failed to convert image to base64", url, e);
-            return url; // Fallback original URL
-          }
+          return await urlToBase64Cached(url);
         };
 
         const galleryBase64 = await Promise.all(item.gallery.map(async (g) => {
@@ -1012,7 +1013,7 @@ export default function PublishPreview() {
                     "flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 bg-muted transition-colors",
                     isCurrent ? "border-accent shadow-sm" : "border-primary/30"
                   )}>
-                    <img src={item.cover.image_url} alt="Portada" className="w-full h-full object-cover" />
+                    <CachedCoverImage url={item.cover.image_url} alt="Portada" className="w-full h-full object-cover" />
                   </div>
 
                   <div className="flex-1 min-w-0">

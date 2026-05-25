@@ -11,6 +11,22 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useSubscription } from "@/hooks/useSubscription";
 import { PLAN_LIMITS } from "@/lib/plans";
 import { compressImage } from "@/utils/imageCompressor";
+import { useCachedImage } from "@/hooks/useCachedImage";
+import { cacheImageBlob } from "@/utils/imageCache";
+
+const CoverImage = ({ url, alt, className }: { url: string; alt: string; className?: string }) => {
+  const { objectUrl, loading } = useCachedImage(url);
+  
+  return (
+    <div className={`relative w-full h-full bg-muted flex items-center justify-center ${className}`}>
+      {loading ? (
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      ) : (
+        <img src={objectUrl} alt={alt} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+      )}
+    </div>
+  );
+};
 
 interface Cover {
   id: string;
@@ -195,6 +211,11 @@ export default function DailyCovers() {
           const ext = "webp"; // converted to WebP
           const path = `${user.id}/${product_id}/${day}/${Date.now()}_${idx}.${ext}`;
           
+          // Guardar en la caché local ANTES de subir para lectura a costo cero
+          const objectUrlForCache = URL.createObjectURL(file);
+          // Wait, file is a Blob/File, let's cache it manually
+          // The public URL won't be known until after upload, but we can cache it right after getting publicUrl.
+
           const { error: upErr } = await supabase.storage
             .from("daily-covers")
             .upload(path, file, {
@@ -205,6 +226,10 @@ export default function DailyCovers() {
           if (upErr) throw upErr;
 
           const { data: urlData } = supabase.storage.from("daily-covers").getPublicUrl(path);
+          
+          // Inyectar a localforage
+          await cacheImageBlob(urlData.publicUrl, file);
+
           const position = existing.length + idx;
 
           const { data: row, error: dbErr } = await supabase
@@ -392,7 +417,7 @@ export default function DailyCovers() {
                                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-3">
                                   {dayCvrs.map((cover, idx) => (
                                     <div key={cover.id} className="relative group rounded-lg overflow-hidden border border-border/60 aspect-square shadow-sm">
-                                      <img src={cover.image_url} alt={`Portada ${idx + 1}`} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                                      <CoverImage url={cover.image_url} alt={`Portada ${idx + 1}`} className="w-full h-full" />
                                       <div className="absolute top-1 left-1">
                                         <Badge variant="secondary" className="text-[9px] px-1 py-0 border-background/20 bg-background/90 backdrop-blur-sm text-foreground shadow-sm">
                                           #{idx + 1}
