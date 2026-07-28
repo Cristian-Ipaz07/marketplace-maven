@@ -50,6 +50,13 @@ interface Product {
   title: string;
   price: string;
   category: string | null;
+  description?: string | null;
+  tags?: string | null;
+  condition?: string | null;
+  location?: string | null;
+  shared_gallery_id?: string | null;
+  title_alternatives?: string[] | null;
+  description_alternatives?: string[] | null;
 }
 
 interface Cover {
@@ -309,7 +316,7 @@ export default function PublishPreview() {
     const { data: products }: any = await withTimeout(
       supabase
         .from("products")
-        .select("id, title, price, category, description, location, tags, condition, shared_gallery_id")
+        .select("id, title, price, category, description, location, tags, condition, shared_gallery_id, title_alternatives, description_alternatives")
         .in("id", uniqueProductIds) as any,
       5000
     );
@@ -365,6 +372,22 @@ export default function PublishPreview() {
       const product = productsMap[productId];
       if (!product) continue;
 
+      // Obtener títulos alternativos e intercalarlos secuencialmente junto con el título principal
+      const titles = [product.title];
+      if (product.title_alternatives && Array.isArray(product.title_alternatives)) {
+        product.title_alternatives.forEach((t: string) => {
+          if (t && t.trim()) titles.push(t.trim());
+        });
+      }
+
+      // Obtener descripciones alternativas e intercalarlas secuencialmente junto con la descripción principal
+      const descriptions = [product.description || ""];
+      if (product.description_alternatives && Array.isArray(product.description_alternatives)) {
+        product.description_alternatives.forEach((d: string) => {
+          if (d && d.trim()) descriptions.push(d.trim());
+        });
+      }
+
       for (let i = 0; i < catCovers.length; i++) {
         let productGallery = [];
         if (product.shared_gallery_id) {
@@ -374,8 +397,18 @@ export default function PublishPreview() {
         }
         const key = `${catCovers[i].id}-${product.id}`;
 
+        // Asignación secuencial (intercalado) de título y descripción
+        const selectedTitle = titles[i % titles.length];
+        const selectedDescription = descriptions[i % descriptions.length];
+
+        const itemProduct = {
+          ...product,
+          title: selectedTitle,
+          description: selectedDescription
+        };
+
         publishItems.push({
-          product,
+          product: itemProduct,
           cover: catCovers[i],
           gallery: productGallery,
           publicationIndex: globalIdx++,

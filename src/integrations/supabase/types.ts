@@ -200,6 +200,8 @@ export type Database = {
           title: string
           updated_at: string
           user_id: string
+          title_alternatives: string[] | null
+          description_alternatives: string[] | null
         }
         Insert: {
           category?: string | null
@@ -213,6 +215,8 @@ export type Database = {
           title: string
           updated_at?: string
           user_id: string
+          title_alternatives?: string[] | null
+          description_alternatives?: string[] | null
         }
         Update: {
           category?: string | null
@@ -226,6 +230,8 @@ export type Database = {
           title?: string
           updated_at?: string
           user_id?: string
+          title_alternatives?: string[] | null
+          description_alternatives?: string[] | null
         }
         Relationships: []
       }

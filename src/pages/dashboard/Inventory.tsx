@@ -14,6 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { compressImage } from "@/utils/imageCompressor";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface Product {
   id: string;
@@ -26,6 +27,8 @@ interface Product {
   location: string | null;
   condition: string | null;
   shared_gallery_id?: string | null;
+  title_alternatives?: string[] | null;
+  description_alternatives?: string[] | null;
 }
 
 interface ProductImage {
@@ -69,7 +72,19 @@ const categories = [
   "Varios",
 ];
 
-const emptyProduct = { title: "", short_name: "", price: "", description: "", tags: "", category: "Hogar", location: "", condition: "Nuevo", shared_gallery_id: "" };
+const emptyProduct = { 
+  title: "", 
+  short_name: "", 
+  price: "", 
+  description: "", 
+  tags: "", 
+  category: "Hogar", 
+  location: "", 
+  condition: "Nuevo", 
+  shared_gallery_id: "",
+  title_alternatives: [] as string[],
+  description_alternatives: [] as string[]
+};
 
 export default function Inventory() {
   const { user } = useAuth();
@@ -84,6 +99,10 @@ export default function Inventory() {
   const [form, setForm] = useState(emptyProduct);
   const [editForm, setEditForm] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
+  
+  // Estados para añadir alternativas temporales en los formularios
+  const [newTitleAlt, setNewTitleAlt] = useState("");
+  const [newDescAlt, setNewDescAlt] = useState("");
 
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -94,7 +113,7 @@ export default function Inventory() {
   useEffect(() => {
     if (!user) return;
     const fetchProducts = async () => {
-      const { data, error } = await supabase.from("products").select("id, title, short_name, price, description, tags, category, location, condition, shared_gallery_id").order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("products").select("id, title, short_name, price, description, tags, category, location, condition, shared_gallery_id, title_alternatives, description_alternatives").order("created_at", { ascending: false });
       if (error) { toast.error("Error cargando productos"); console.error(error); }
       else setProducts(data || []);
       setLoading(false);
@@ -142,7 +161,7 @@ export default function Inventory() {
           condition: row["condition"] || row["estado"] || "Nuevo",
           location: row["location"] || row["ubicacion"] || null,
         }));
-        const { data: inserted, error } = await supabase.from("products").insert(rows).select("id, title, short_name, price, description, tags, category, location, condition");
+        const { data: inserted, error } = await supabase.from("products").insert(rows).select("id, title, short_name, price, description, tags, category, location, condition, title_alternatives, description_alternatives");
         if (error) { toast.error("Error importando"); console.error(error); return; }
         setProducts((prev) => [...(inserted || []), ...prev]);
         toast.success(`${inserted?.length || 0} productos importados`);
@@ -159,14 +178,18 @@ export default function Inventory() {
       user_id: user.id, title: form.title, short_name: form.short_name || null, price: form.price || "0",
       description: form.description || null, tags: form.tags || null,
       category: form.category, condition: form.condition, location: form.location || null,
+      title_alternatives: form.title_alternatives || [],
+      description_alternatives: form.description_alternatives || []
     };
     if (form.shared_gallery_id) payload.shared_gallery_id = form.shared_gallery_id;
 
-    const { data, error } = await supabase.from("products").insert(payload).select("id, title, short_name, price, description, tags, category, location, condition, shared_gallery_id").single();
+    const { data, error } = await supabase.from("products").insert(payload).select("id, title, short_name, price, description, tags, category, location, condition, shared_gallery_id, title_alternatives, description_alternatives").single();
     setSaving(false);
     if (error) { toast.error("Error agregando producto"); return; }
     setProducts((prev) => [data, ...prev]);
     setForm(emptyProduct);
+    setNewTitleAlt("");
+    setNewDescAlt("");
     setAddOpen(false);
     toast.success("Producto agregado");
   };
@@ -218,14 +241,18 @@ export default function Inventory() {
       title: editForm.title, short_name: editForm.short_name || null, price: editForm.price || "0",
       description: editForm.description || null, tags: editForm.tags || null,
       category: editForm.category, condition: editForm.condition, location: editForm.location || null,
-      shared_gallery_id: editForm.shared_gallery_id || null
+      shared_gallery_id: editForm.shared_gallery_id || null,
+      title_alternatives: editForm.title_alternatives || [],
+      description_alternatives: editForm.description_alternatives || []
     };
 
-    const { data, error } = await supabase.from("products").update(payload).eq("id", editForm.id).select("id, title, short_name, price, description, tags, category, location, condition, shared_gallery_id").single();
+    const { data, error } = await supabase.from("products").update(payload).eq("id", editForm.id).select("id, title, short_name, price, description, tags, category, location, condition, shared_gallery_id, title_alternatives, description_alternatives").single();
     setSaving(false);
     if (error) { toast.error("Error actualizando producto"); return; }
     setProducts((prev) => prev.map((p) => p.id === editForm.id ? data : p));
     setEditForm(null);
+    setNewTitleAlt("");
+    setNewDescAlt("");
     setEditOpen(false);
     toast.success("Producto actualizado");
   };
@@ -341,46 +368,169 @@ export default function Inventory() {
             <DialogTrigger asChild>
               <Button size="sm"><Plus className="h-4 w-4 sm:mr-2" /><span className="hidden sm:inline">Agregar</span></Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-2xl">
               <DialogHeader><DialogTitle className="font-display">Nuevo producto</DialogTitle></DialogHeader>
-              <div className="space-y-3 py-2">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2 sm:col-span-1"><Label>Título *</Label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Nombre del producto" /></div>
-                  <div className="col-span-2 sm:col-span-1"><Label>Nombre Corto (Opcional)</Label><Input value={form.short_name || ""} onChange={(e) => setForm({ ...form, short_name: e.target.value })} placeholder="Ej: Adrenaline" /></div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><Label>Precio</Label><Input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="0" /></div>
-                  <div><Label>Categoría</Label>
-                    <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{categories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-                    </Select>
+              <Tabs defaultValue="basic" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="basic">Información Básica</TabsTrigger>
+                  <TabsTrigger value="antispam">Alternativas Antispam</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="basic" className="space-y-3 py-2 mt-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2 sm:col-span-1"><Label>Título *</Label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Nombre del producto" /></div>
+                    <div className="col-span-2 sm:col-span-1"><Label>Nombre Corto (Opcional)</Label><Input value={form.short_name || ""} onChange={(e) => setForm({ ...form, short_name: e.target.value })} placeholder="Ej: Adrenaline" /></div>
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><Label>Estado</Label>
-                    <Select value={form.condition} onValueChange={(v) => setForm({ ...form, condition: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{conditions.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-                    </Select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label>Precio</Label><Input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="0" /></div>
+                    <div><Label>Categoría</Label>
+                      <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{categories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                  <div><Label>Ubicación</Label><Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Ciudad" /></div>
-                </div>
-                <div><Label>Descripción</Label><Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Descripción" /></div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><Label>Etiquetas</Label><Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="etiqueta1, etiqueta2" /></div>
-                  <div>
-                    <Label>Galería de Apoyo (Opcional)</Label>
-                    <Select value={form.shared_gallery_id || "none"} onValueChange={(v) => setForm({ ...form, shared_gallery_id: v === "none" ? "" : v })}>
-                      <SelectTrigger><SelectValue placeholder="Sin galería (Imágenes propias)" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Sin galería (Imágenes propias)</SelectItem>
-                        {sharedGalleries.map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label>Estado</Label>
+                      <Select value={form.condition} onValueChange={(v) => setForm({ ...form, condition: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{conditions.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div><Label>Ubicación</Label><Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Ciudad" /></div>
                   </div>
-                </div>
-              </div>
+                  <div><Label>Descripción</Label><Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Descripción" /></div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label>Etiquetas</Label><Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="etiqueta1, etiqueta2" /></div>
+                    <div>
+                      <Label>Galería de Apoyo (Opcional)</Label>
+                      <Select value={form.shared_gallery_id || "none"} onValueChange={(v) => setForm({ ...form, shared_gallery_id: v === "none" ? "" : v })}>
+                        <SelectTrigger><SelectValue placeholder="Sin galería (Imágenes propias)" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Sin galería (Imágenes propias)</SelectItem>
+                          {sharedGalleries.map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </TabsContent>
+                
+                <TabsContent value="antispam" className="space-y-4 py-2 mt-2">
+                  <div className="bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-md p-3 text-xs leading-relaxed space-y-1">
+                    <p className="font-semibold">Bypass de Spam de Meta Marketplace 🛡️</p>
+                    <p>El bot intercalará secuencialmente entre el título/descripción principal y estas alternativas cuando publiques múltiples portadas diarias. Esto evita que Meta marque tus cuentas como spam por duplicación.</p>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-sm font-medium">Títulos Alternativos</Label>
+                      <div className="flex gap-2 mt-1">
+                        <Input 
+                          value={newTitleAlt} 
+                          onChange={(e) => setNewTitleAlt(e.target.value)} 
+                          placeholder="Añadir título alternativo..." 
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const trimmed = newTitleAlt.trim();
+                              if (trimmed) {
+                                setForm({ ...form, title_alternatives: [...(form.title_alternatives || []), trimmed] });
+                                setNewTitleAlt("");
+                              }
+                            }
+                          }}
+                        />
+                        <Button 
+                          type="button" 
+                          variant="secondary"
+                          onClick={() => {
+                            const trimmed = newTitleAlt.trim();
+                            if (trimmed) {
+                              setForm({ ...form, title_alternatives: [...(form.title_alternatives || []), trimmed] });
+                              setNewTitleAlt("");
+                            }
+                          }}
+                        >
+                          Añadir
+                        </Button>
+                      </div>
+                      
+                      <div className="mt-2 space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                        {(!form.title_alternatives || form.title_alternatives.length === 0) ? (
+                          <p className="text-xs text-muted-foreground italic py-1">No hay títulos alternativos configurados.</p>
+                        ) : (
+                          form.title_alternatives.map((t, idx) => (
+                            <div key={idx} className="flex items-center justify-between bg-muted/50 rounded p-2 text-xs border border-border">
+                              <span className="truncate max-w-[85%] font-medium">{t}</span>
+                              <Button 
+                                type="button" 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-5 w-5 text-destructive hover:bg-destructive/10"
+                                onClick={() => setForm({ ...form, title_alternatives: form.title_alternatives.filter((_, i) => i !== idx) })}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-border pt-3">
+                      <Label className="text-sm font-medium">Descripciones Alternativas</Label>
+                      <div className="space-y-2 mt-1">
+                        <textarea 
+                          className="flex min-h-[60px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                          value={newDescAlt} 
+                          onChange={(e) => setNewDescAlt(e.target.value)} 
+                          placeholder="Añadir descripción alternativa..." 
+                        />
+                        <div className="flex justify-end">
+                          <Button 
+                            type="button" 
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              const trimmed = newDescAlt.trim();
+                              if (trimmed) {
+                                setForm({ ...form, description_alternatives: [...(form.description_alternatives || []), trimmed] });
+                                setNewDescAlt("");
+                              }
+                            }}
+                          >
+                            Añadir Descripción
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="mt-2 space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                        {(!form.description_alternatives || form.description_alternatives.length === 0) ? (
+                          <p className="text-xs text-muted-foreground italic py-1">No hay descripciones alternativas configuradas.</p>
+                        ) : (
+                          form.description_alternatives.map((d, idx) => (
+                            <div key={idx} className="flex flex-col bg-muted/50 rounded p-2 text-xs border border-border space-y-1">
+                              <div className="flex items-start justify-between">
+                                <span className="font-semibold text-muted-foreground">Alternativa #{idx + 1}</span>
+                                <Button 
+                                  type="button" 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-5 w-5 text-destructive hover:bg-destructive/10"
+                                  onClick={() => setForm({ ...form, description_alternatives: form.description_alternatives.filter((_, i) => i !== idx) })}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                              <p className="line-clamp-2 text-muted-foreground whitespace-pre-wrap">{d}</p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
               <DialogFooter>
                 <Button onClick={addProduct} disabled={saving}>{saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Guardar</Button>
               </DialogFooter>
@@ -390,47 +540,170 @@ export default function Inventory() {
       </div>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle className="font-display">Editar producto</DialogTitle></DialogHeader>
           {editForm && (
-            <div className="space-y-3 py-2">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2 sm:col-span-1"><Label>Título *</Label><Input value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} placeholder="Nombre del producto" /></div>
-                <div className="col-span-2 sm:col-span-1"><Label>Nombre Corto (Opcional)</Label><Input value={editForm.short_name || ""} onChange={(e) => setEditForm({ ...editForm, short_name: e.target.value })} placeholder="Ej: Adrenaline" /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label>Precio</Label><Input value={editForm.price} onChange={(e) => setEditForm({ ...editForm, price: e.target.value })} placeholder="0" /></div>
-                <div><Label>Categoría</Label>
-                  <Select value={editForm.category || "General"} onValueChange={(v) => setEditForm({ ...editForm, category: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{categories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-                  </Select>
+            <Tabs defaultValue="basic" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="basic">Información Básica</TabsTrigger>
+                <TabsTrigger value="antispam">Alternativas Antispam</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="basic" className="space-y-3 py-2 mt-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2 sm:col-span-1"><Label>Título *</Label><Input value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} placeholder="Nombre del producto" /></div>
+                  <div className="col-span-2 sm:col-span-1"><Label>Nombre Corto (Opcional)</Label><Input value={editForm.short_name || ""} onChange={(e) => setEditForm({ ...editForm, short_name: e.target.value })} placeholder="Ej: Adrenaline" /></div>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label>Estado</Label>
-                  <Select value={editForm.condition || "Nuevo"} onValueChange={(v) => setEditForm({ ...editForm, condition: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{conditions.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-                  </Select>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Precio</Label><Input value={editForm.price} onChange={(e) => setEditForm({ ...editForm, price: e.target.value })} placeholder="0" /></div>
+                  <div><Label>Categoría</Label>
+                    <Select value={editForm.category || "General"} onValueChange={(v) => setEditForm({ ...editForm, category: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{categories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div><Label>Ubicación</Label><Input value={editForm.location || ""} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} placeholder="Ciudad" /></div>
-              </div>
-              <div><Label>Descripción</Label><Input value={editForm.description || ""} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} placeholder="Descripción" /></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label>Etiquetas</Label><Input value={editForm.tags || ""} onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })} placeholder="etiqueta1, etiqueta2" /></div>
-                <div>
-                  <Label>Galería de Apoyo (Opcional)</Label>
-                  <Select value={editForm.shared_gallery_id || "none"} onValueChange={(v) => setEditForm({ ...editForm, shared_gallery_id: v === "none" ? "" : v })}>
-                    <SelectTrigger><SelectValue placeholder="Sin galería (Imágenes propias)" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Sin galería (Imágenes propias)</SelectItem>
-                      {sharedGalleries.map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Estado</Label>
+                    <Select value={editForm.condition || "Nuevo"} onValueChange={(v) => setEditForm({ ...editForm, condition: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{conditions.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div><Label>Ubicación</Label><Input value={editForm.location || ""} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} placeholder="Ciudad" /></div>
                 </div>
-              </div>
-            </div>
+                <div><Label>Descripción</Label><Input value={editForm.description || ""} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} placeholder="Descripción" /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Etiquetas</Label><Input value={editForm.tags || ""} onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })} placeholder="etiqueta1, etiqueta2" /></div>
+                  <div>
+                    <Label>Galería de Apoyo (Opcional)</Label>
+                    <Select value={editForm.shared_gallery_id || "none"} onValueChange={(v) => setEditForm({ ...editForm, shared_gallery_id: v === "none" ? "" : v })}>
+                      <SelectTrigger><SelectValue placeholder="Sin galería (Imágenes propias)" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Sin galería (Imágenes propias)</SelectItem>
+                        {sharedGalleries.map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </TabsContent>
+              
+              <TabsContent value="antispam" className="space-y-4 py-2 mt-2">
+                <div className="bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-md p-3 text-xs leading-relaxed space-y-1">
+                  <p className="font-semibold">Bypass de Spam de Meta Marketplace 🛡️</p>
+                  <p>El bot intercalará secuencialmente entre el título/descripción principal y estas alternativas cuando publiques múltiples portadas diarias. Esto evita que Meta marque tus cuentas como spam por duplicación.</p>
+                </div>
+                
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-sm font-medium">Títulos Alternativos</Label>
+                    <div className="flex gap-2 mt-1">
+                      <Input 
+                        value={newTitleAlt} 
+                        onChange={(e) => setNewTitleAlt(e.target.value)} 
+                        placeholder="Añadir título alternativo..." 
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const trimmed = newTitleAlt.trim();
+                            if (trimmed) {
+                              setEditForm({ ...editForm, title_alternatives: [...(editForm.title_alternatives || []), trimmed] });
+                              setNewTitleAlt("");
+                            }
+                          }
+                        }}
+                      />
+                      <Button 
+                        type="button" 
+                        variant="secondary"
+                        onClick={() => {
+                          const trimmed = newTitleAlt.trim();
+                          if (trimmed) {
+                            setEditForm({ ...editForm, title_alternatives: [...(editForm.title_alternatives || []), trimmed] });
+                            setNewTitleAlt("");
+                          }
+                        }}
+                      >
+                        Añadir
+                      </Button>
+                    </div>
+                    
+                    <div className="mt-2 space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                      {(!editForm.title_alternatives || editForm.title_alternatives.length === 0) ? (
+                        <p className="text-xs text-muted-foreground italic py-1">No hay títulos alternativos configurados.</p>
+                      ) : (
+                        editForm.title_alternatives.map((t, idx) => (
+                          <div key={idx} className="flex items-center justify-between bg-muted/50 rounded p-2 text-xs border border-border">
+                            <span className="truncate max-w-[85%] font-medium">{t}</span>
+                            <Button 
+                              type="button" 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-5 w-5 text-destructive hover:bg-destructive/10"
+                              onClick={() => setEditForm({ ...editForm, title_alternatives: editForm.title_alternatives.filter((_, i) => i !== idx) })}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="border-t border-border pt-3">
+                    <Label className="text-sm font-medium">Descripciones Alternativas</Label>
+                    <div className="space-y-2 mt-1">
+                      <textarea 
+                        className="flex min-h-[60px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                        value={newDescAlt} 
+                        onChange={(e) => setNewDescAlt(e.target.value)} 
+                        placeholder="Añadir descripción alternativa..." 
+                      />
+                      <div className="flex justify-end">
+                        <Button 
+                          type="button" 
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            const trimmed = newDescAlt.trim();
+                            if (trimmed) {
+                              setEditForm({ ...editForm, description_alternatives: [...(editForm.description_alternatives || []), trimmed] });
+                              setNewDescAlt("");
+                            }
+                          }}
+                        >
+                          Añadir Descripción
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                      {(!editForm.description_alternatives || editForm.description_alternatives.length === 0) ? (
+                        <p className="text-xs text-muted-foreground italic py-1">No hay descripciones alternativas configuradas.</p>
+                      ) : (
+                        editForm.description_alternatives.map((d, idx) => (
+                          <div key={idx} className="flex flex-col bg-muted/50 rounded p-2 text-xs border border-border space-y-1">
+                            <div className="flex items-start justify-between">
+                              <span className="font-semibold text-muted-foreground">Alternativa #{idx + 1}</span>
+                              <Button 
+                                type="button" 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-5 w-5 text-destructive hover:bg-destructive/10"
+                                onClick={() => setEditForm({ ...editForm, description_alternatives: editForm.description_alternatives.filter((_, i) => i !== idx) })}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                            <p className="line-clamp-2 text-muted-foreground whitespace-pre-wrap">{d}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
           )}
           <DialogFooter>
             <Button onClick={updateProduct} disabled={saving}>{saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Guardar Cambios</Button>
