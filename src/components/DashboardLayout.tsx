@@ -1,11 +1,13 @@
 import { Link, useLocation, Outlet, useNavigate } from "react-router-dom";
-import { Package, Users, Settings, CreditCard, BarChart3, LayoutDashboard, LogOut, ImageIcon, Eye, Shield, Menu, X, Info, Images } from "lucide-react";
+import { 
+  Package, Users, Settings, CreditCard, BarChart3, LayoutDashboard, 
+  LogOut, ImageIcon, Eye, Shield, Menu, X, Info, Images, ClipboardList 
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import TrialBanner from "@/components/TrialBanner";
-import { ClipboardList } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -13,6 +15,7 @@ import { supabase } from "@/lib/supabase";
 import { useSubscription } from "@/hooks/useSubscription";
 import { PLAN_LIMITS } from "@/lib/plans";
 import { toast } from "sonner";
+import { isHideAdminInSidebar, setHideAdminInSidebar, ADMIN_VISIBILITY_EVENT } from "@/lib/adminSecurity";
 
 const navItems = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Inicio", exact: true },
@@ -27,18 +30,30 @@ const navItems = [
   { to: "/dashboard/subscription", icon: CreditCard, label: "Suscripción" },
 ];
 
-function SidebarContent({ pathname, allNavItems, handleSignOut, onNavClick }: {
+function SidebarContent({ 
+  pathname, 
+  allNavItems, 
+  handleSignOut, 
+  onNavClick,
+  onLogoClick,
+}: {
   pathname: string;
   allNavItems: typeof navItems;
   handleSignOut: () => void;
   onNavClick?: () => void;
+  onLogoClick?: () => void;
 }) {
   return (
     <>
       <div className="p-6">
-        <Link to="/" className="font-display text-xl font-bold tracking-tight" onClick={onNavClick}>
+        <button
+          type="button"
+          onClick={onLogoClick}
+          className="font-display text-xl font-bold tracking-tight text-left cursor-pointer focus:outline-none select-none hover:opacity-90"
+          title="MarketMaster"
+        >
           Market<span className="text-sidebar-primary">Master</span>
-        </Link>
+        </button>
       </div>
       <nav className="flex-1 px-3 space-y-1">
         {allNavItems.map((item) => {
@@ -85,11 +100,43 @@ export default function DashboardLayout() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [hideAdmin, setHideAdmin] = useState(() => isHideAdminInSidebar());
 
   const currentPlan = sub?.plan || "basico";
   const planLimits = PLAN_LIMITS[currentPlan] || PLAN_LIMITS.basico;
 
   const registersRef = useRef<Record<string, boolean>>({});
+  const logoClicksRef = useRef<{ count: number; timer: any }>({ count: 0, timer: null });
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setHideAdmin(isHideAdminInSidebar());
+    };
+    window.addEventListener(ADMIN_VISIBILITY_EVENT, handleVisibilityChange);
+    return () => window.removeEventListener(ADMIN_VISIBILITY_EVENT, handleVisibilityChange);
+  }, []);
+
+  const handleLogoClick = () => {
+    logoClicksRef.current.count += 1;
+    if (logoClicksRef.current.timer) {
+      clearTimeout(logoClicksRef.current.timer);
+    }
+
+    if (logoClicksRef.current.count >= 5) {
+      logoClicksRef.current.count = 0;
+      const nextState = !isHideAdminInSidebar();
+      setHideAdminInSidebar(nextState);
+      if (nextState) {
+        toast.info("Acceso de Administrador oculto en este navegador");
+      } else {
+        toast.success("Acceso de Administrador visible");
+      }
+    } else {
+      logoClicksRef.current.timer = setTimeout(() => {
+        logoClicksRef.current.count = 0;
+      }, 2500);
+    }
+  };
   
   useEffect(() => {
     if (!user) return;
@@ -108,65 +155,63 @@ export default function DashboardLayout() {
             const { data, error } = await supabase
               .from("connected_accounts")
               .select("id, name, active")
-              .eq("chrome_profile_path", id)
-              .eq("user_id", user.id)
+              .eq("id", id)
               .maybeSingle();
             if (error) throw error;
             return data;
         };
 
-        // Timeout de 6 segundos para la DB
-        const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("TIMEOUT")), 6000)
+        const timeoutPromise = new Promise<null>((_, reject) => 
+            setTimeout(() => reject(new Error("Timeout conectando a Supabase")), 4000)
         );
 
-        const existing = await Promise.race([fetchExisting(), timeoutPromise]) as any;
+        let existing: any = null;
+        try {
+            existing = await Promise.race([fetchExisting(), timeoutPromise]);
+        } catch (fetchErr: any) {
+            console.warn("Fallo lectura previa de cuenta, procediendo con fallback:", fetchErr.message);
+        }
 
-        if (!existing) {
-          // INSERTAR NUEVO
-          toast.promise(
-            (async () => {
-              const { error: insertError } = await supabase.from("connected_accounts").insert({
-                user_id: user.id, 
-                name: name, 
-                active: true, 
-                chrome_profile_path: id,
-                updated_at: new Date().toISOString()
-              });
-              if (insertError) throw insertError;
-            })(),
-            {
-              loading: 'Vinculando nuevo perfil...',
-              success: `¡Perfil "${name}" vinculado!`,
-              error: (err) => {
-                  if (err?.message === "TIMEOUT") return "El servidor tarda demasiado. Reintenta.";
-                  return "Error de red: No se pudo registrar el perfil.";
-              }
-            }
-          );
-        } else {
-          // ACTUALIZAR EXISTENTE
-          await supabase
-            .from("connected_accounts")
-            .update({ 
-              active: true, 
-              name: existing.name || name,
-              updated_at: new Date().toISOString() 
-            })
-            .eq("id", existing.id);
-          
-          if (!existing.active) {
-            toast.success(`Perfil "${existing.name}" reactivado.`);
+        if (existing) {
+          if (existing.name !== name) {
+            await supabase
+              .from("connected_accounts")
+              .update({ name, updated_at: new Date().toISOString() })
+              .eq("id", id);
           }
+        } else {
+          // 2. CHECK LIMIT
+          const { count } = await supabase
+            .from("connected_accounts")
+            .select("id", { count: "exact", head: true });
+
+          if ((count || 0) >= planLimits.accounts) {
+            return;
+          }
+
+          // 3. INSERT
+          const isFirst = (count || 0) === 0;
+          await supabase.from("connected_accounts").insert({
+            id,
+            user_id: user.id,
+            name,
+            active: isFirst,
+          });
+
+          // Notificar al bridge para que actualice la UI de la extensión
+          window.postMessage(
+            {
+              source: "MARKETMASTER_DASHBOARD",
+              action: "PROFILES_UPDATED",
+            },
+            "*"
+          );
         }
       } catch (err: any) {
-        console.error("[AutoProfile] Error:", err);
-        if (err?.message?.includes("fetch") || err?.message === "TIMEOUT") {
-            toast.error("⚠️ Error de conexión con el servidor. Reintenta en unos segundos.");
-        }
+        console.warn("Fallo registro silencioso de perfil:", err.message);
       } finally {
         setTimeout(() => {
-          if (registersRef.current) delete registersRef.current[id];
+          delete registersRef.current[id];
         }, 1000);
       }
     };
@@ -180,7 +225,7 @@ export default function DashboardLayout() {
     navigate("/");
   };
 
-  const allNavItems = isAdmin
+  const allNavItems = (isAdmin && !hideAdmin)
     ? [...navItems, { to: "/dashboard/admin", icon: Shield, label: "Admin" }]
     : navItems;
 
@@ -189,9 +234,13 @@ export default function DashboardLayout() {
       <div className="flex flex-col min-h-screen">
         {/* Mobile top bar */}
         <header className="sticky top-0 z-50 bg-sidebar border-b border-sidebar-border flex items-center justify-between px-4 h-14">
-          <Link to="/" className="font-display text-lg font-bold tracking-tight text-sidebar-foreground">
+          <button
+            type="button"
+            onClick={handleLogoClick}
+            className="font-display text-lg font-bold tracking-tight text-sidebar-foreground select-none focus:outline-none"
+          >
             Market<span className="text-sidebar-primary">Master</span>
-          </Link>
+          </button>
           <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="text-sidebar-foreground">
@@ -205,6 +254,7 @@ export default function DashboardLayout() {
                   allNavItems={allNavItems}
                   handleSignOut={handleSignOut}
                   onNavClick={() => setSheetOpen(false)}
+                  onLogoClick={handleLogoClick}
                 />
               </div>
             </SheetContent>
@@ -225,6 +275,7 @@ export default function DashboardLayout() {
           pathname={pathname}
           allNavItems={allNavItems}
           handleSignOut={handleSignOut}
+          onLogoClick={handleLogoClick}
         />
       </aside>
       <main className="flex-1 overflow-y-auto relative">
