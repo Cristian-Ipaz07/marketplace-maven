@@ -89,8 +89,9 @@ export default function AdminPanel() {
   // Visibilidad en este dispositivo
   const [hiddenInSidebar, setHiddenInSidebarState] = useState(() => isHideAdminInSidebar());
 
-  const hasPinConfigured = Boolean(user?.user_metadata?.admin_pin_hash);
-  const storedPinHash = user?.user_metadata?.admin_pin_hash;
+  const localPinHash = typeof window !== 'undefined' ? localStorage.getItem('__mm_admin_pin_hash') : null;
+  const storedPinHash = user?.user_metadata?.admin_pin_hash || localPinHash || undefined;
+  const hasPinConfigured = Boolean(storedPinHash);
 
   useEffect(() => {
     if (unlocked) {

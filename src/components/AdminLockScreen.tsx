@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Shield, Lock, KeyRound, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Shield, Lock, KeyRound, Eye, EyeOff, Loader2, LogIn } from "lucide-react";
 import { toast } from "sonner";
 import { hashPin, setAdminUnlocked } from "@/lib/adminSecurity";
 import { supabase } from "@/lib/supabase";
@@ -27,6 +27,7 @@ export default function AdminLockScreen({
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [settingPin, setSettingPin] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,18 +69,47 @@ export default function AdminLockScreen({
 
     setSettingPin(true);
     try {
+      // 1. Comprobar si existe sesión activa o intentar refrescarla
+      let { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        session = refreshed.session;
+      }
+
+      if (!session) {
+        setSessionExpired(true);
+        toast.error("Tu sesión ha expirado o cambió tu contraseña. Inicia sesión nuevamente.");
+        return;
+      }
+
       const hashed = await hashPin(newPin);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("__mm_admin_pin_hash", hashed);
+      }
+
       const { error } = await supabase.auth.updateUser({
         data: { admin_pin_hash: hashed },
       });
 
-      if (error) throw error;
+      if (error) {
+        if (error.message?.includes("session") || error.message?.includes("Auth")) {
+          setSessionExpired(true);
+          toast.error("Tu sesión ha expirado. Por favor inicia sesión nuevamente.");
+          return;
+        }
+        throw error;
+      }
 
       setAdminUnlocked(true);
       toast.success("¡PIN de Administrador configurado con éxito!");
       onUnlock();
     } catch (e: any) {
-      toast.error("Error al guardar el PIN: " + e.message);
+      if (e.message?.includes("session") || e.message?.includes("Auth")) {
+        setSessionExpired(true);
+        toast.error("Tu sesión expiró tras el cambio de contraseña. Inicia sesión de nuevo.");
+      } else {
+        toast.error("Error al guardar el PIN: " + e.message);
+      }
     } finally {
       setSettingPin(false);
     }
@@ -107,7 +137,19 @@ export default function AdminLockScreen({
         </CardHeader>
 
         <CardContent>
-          {hasPinConfigured ? (
+          {sessionExpired ? (
+            <div className="space-y-4 text-center py-2">
+              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500">
+                Tu sesión ha expirado (probablemente porque cambiaste la contraseña de tu cuenta). Inicia sesión nuevamente para guardar el PIN.
+              </div>
+              <Button 
+                onClick={() => { window.location.href = "/login"; }} 
+                className="w-full h-11"
+              >
+                <LogIn className="mr-2 h-4 w-4" /> Iniciar Sesión Nuevamente
+              </Button>
+            </div>
+          ) : hasPinConfigured ? (
             <form onSubmit={handleVerify} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="admin-pin">PIN de Seguridad</Label>
