@@ -317,6 +317,7 @@ export default function PublishPreview() {
       supabase
         .from("products")
         .select("id, title, price, category, description, location, tags, condition, shared_gallery_id, title_alternatives, description_alternatives")
+        .eq("user_id", user.id)
         .in("id", uniqueProductIds) as any,
       5000
     );

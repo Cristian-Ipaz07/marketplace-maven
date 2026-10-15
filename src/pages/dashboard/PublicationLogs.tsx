@@ -45,9 +45,9 @@ export default function PublicationLogs() {
     const coverIds = [...new Set(data.map((l) => l.cover_id).filter(Boolean))] as string[];
 
     const [{ data: products }, { data: profiles }, { data: covers }] = await Promise.all([
-      supabase.from("products").select("id, title").in("id", productIds.length > 0 ? productIds : ["00000000-0000-0000-0000-000000000000"]),
-      supabase.from("connected_accounts").select("id, name").in("id", profileIds.length > 0 ? profileIds : ["00000000-0000-0000-0000-000000000000"]),
-      supabase.from("daily_covers").select("id, image_url").in("id", coverIds.length > 0 ? coverIds : ["00000000-0000-0000-0000-000000000000"])
+      supabase.from("products").select("id, title").eq("user_id", user!.id).in("id", productIds.length > 0 ? productIds : ["00000000-0000-0000-0000-000000000000"]),
+      supabase.from("connected_accounts").select("id, name").eq("user_id", user!.id).in("id", profileIds.length > 0 ? profileIds : ["00000000-0000-0000-0000-000000000000"]),
+      supabase.from("daily_covers").select("id, image_url").eq("user_id", user!.id).in("id", coverIds.length > 0 ? coverIds : ["00000000-0000-0000-0000-000000000000"])
     ]);
 
     const productMap = Object.fromEntries((products || []).map((p) => [p.id, p.title]));

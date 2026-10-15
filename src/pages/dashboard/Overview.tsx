@@ -24,6 +24,7 @@ export default function Overview() {
   }, [user]);
 
   const loadDashboardData = async () => {
+    if (!user) return;
     setLoading(true);
     try {
       const today = new Date();
@@ -35,10 +36,10 @@ export default function Overview() {
         { count: publicationsToday },
         { data: allLogs }
       ] = await Promise.all([
-        supabase.from("products").select("*", { count: "exact", head: true }),
-        supabase.from("connected_accounts").select("id, active"),
-        supabase.from("publication_logs").select("*", { count: "exact", head: true }).gte("published_at", today.toISOString()),
-        supabase.from("publication_logs").select("id, status, error_message, published_at, product_id").order("published_at", { ascending: false }).limit(20)
+        supabase.from("products").select("*", { count: "exact", head: true }).eq("user_id", user.id),
+        supabase.from("connected_accounts").select("id, active").eq("user_id", user.id),
+        supabase.from("publication_logs").select("*", { count: "exact", head: true }).eq("user_id", user.id).gte("published_at", today.toISOString()),
+        supabase.from("publication_logs").select("id, status, error_message, published_at, product_id").eq("user_id", user.id).order("published_at", { ascending: false }).limit(20)
       ]);
 
       // Calculate success rate
@@ -60,7 +61,7 @@ export default function Overview() {
       // Recent activity (last 5)
       if (allLogs && allLogs.length > 0) {
         const productIds = [...new Set(allLogs.slice(0, 5).map(l => l.product_id))];
-        const { data: products } = await supabase.from("products").select("id, title").in("id", productIds);
+        const { data: products } = await supabase.from("products").select("id, title").eq("user_id", user.id).in("id", productIds);
         const productMap = Object.fromEntries((products || []).map(p => [p.id, p.title]));
 
         setRecentActivity(allLogs.slice(0, 5).map(l => {
@@ -80,6 +81,8 @@ export default function Overview() {
             ok: l.status === 'success'
           };
         }));
+      } else {
+        setRecentActivity([]);
       }
 
     } catch (e) {

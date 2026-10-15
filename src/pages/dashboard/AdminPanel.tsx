@@ -89,9 +89,8 @@ export default function AdminPanel() {
   // Visibilidad en este dispositivo
   const [hiddenInSidebar, setHiddenInSidebarState] = useState(() => isHideAdminInSidebar());
 
-  const localPinHash = typeof window !== 'undefined' ? localStorage.getItem('__mm_admin_pin_hash') : null;
-  const storedPinHash = user?.user_metadata?.admin_pin_hash || localPinHash || undefined;
-  const hasPinConfigured = Boolean(storedPinHash);
+  const hasPinConfigured = Boolean(user?.user_metadata?.admin_pin_hash);
+  const storedPinHash = user?.user_metadata?.admin_pin_hash;
 
   useEffect(() => {
     if (unlocked) {
@@ -102,24 +101,30 @@ export default function AdminPanel() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [profilesResult, subsResult, rolesResult, couponResult] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("user_id, display_name, avatar_url, created_at"),
-        supabase
-          .from("subscriptions")
-          .select("id, user_id, plan, daily_limit, price, is_trial, trial_ends_at, expires_at, active, created_at")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("user_roles")
-          .select("user_id, role"),
-        supabase
-          .from("coupons")
-          .select("*")
-          .order("created_at", { ascending: false }),
+      // 1. Intentar obtener la lista de usuarios vía RPC get_admin_users (lectura directa y segura de auth.users)
+      const [rpcResult, couponResult] = await Promise.all([
+        supabase.rpc("get_admin_users"),
+        supabase.from("coupons").select("*").order("created_at", { ascending: false }),
       ]);
 
-      if (profilesResult.error) throw new Error("Perfiles: " + profilesResult.error.message);
+      if (!rpcResult.error && Array.isArray(rpcResult.data) && rpcResult.data.length > 0) {
+        setUsers(rpcResult.data as EnrichedUser[]);
+        setCoupons((couponResult.data || []) as Coupon[]);
+        setLoading(false);
+        return;
+      }
+
+      // 2. Fallback resiliente si la función RPC aún no ha sido creada en Supabase
+      const [profilesResult, subsResult, rolesResult] = await Promise.all([
+        supabase.from("profiles").select("user_id, display_name, avatar_url, created_at"),
+        supabase.from("subscriptions").select("id, user_id, plan, daily_limit, price, is_trial, trial_ends_at, expires_at, active, created_at").order("created_at", { ascending: false }),
+        supabase.from("user_roles").select("user_id, role"),
+      ]);
+
+      const profilesMap: Record<string, any> = {};
+      for (const p of profilesResult.data || []) {
+        profilesMap[p.user_id] = p;
+      }
 
       const subsMap: Record<string, any> = {};
       for (const sub of subsResult.data || []) {
@@ -132,14 +137,25 @@ export default function AdminPanel() {
         rolesMap[r.user_id].push(r.role);
       }
 
-      const enriched: EnrichedUser[] = (profilesResult.data || []).map((p: any) => ({
-        id: p.user_id,
-        email: p.display_name || "Sin identificador",
-        created_at: p.created_at,
-        profile: { display_name: p.display_name },
-        subscription: subsMap[p.user_id] || null,
-        roles: rolesMap[p.user_id] || [],
-      }));
+      // Combinar todos los user_ids detectados para incluir a cualquier usuario nuevo
+      const allUserIds = Array.from(new Set([
+        ...Object.keys(profilesMap),
+        ...Object.keys(subsMap),
+        ...Object.keys(rolesMap),
+      ]));
+
+      const enriched: EnrichedUser[] = allUserIds.map((uid) => {
+        const p = profilesMap[uid];
+        const s = subsMap[uid];
+        return {
+          id: uid,
+          email: p?.display_name || (s ? `Usuario registrado (${uid.slice(0, 8)})` : "Usuario registrado"),
+          created_at: p?.created_at || s?.created_at || new Date().toISOString(),
+          profile: p ? { display_name: p.display_name } : null,
+          subscription: s || null,
+          roles: rolesMap[uid] || ["user"],
+        };
+      });
 
       setUsers(enriched);
       setCoupons((couponResult.data || []) as Coupon[]);

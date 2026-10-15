@@ -183,7 +183,8 @@ export default function DashboardLayout() {
           // 2. CHECK LIMIT
           const { count } = await supabase
             .from("connected_accounts")
-            .select("id", { count: "exact", head: true });
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", user.id);
 
           if ((count || 0) >= planLimits.accounts) {
             return;

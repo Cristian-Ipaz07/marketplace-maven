@@ -51,7 +51,7 @@ export default function Publish() {
   // Load existing config & product categories
   useEffect(() => {
     if (!user) return;
-    supabase.from("publish_configs").select("*").limit(1).then(({ data }) => {
+    supabase.from("publish_configs").select("*").eq("user_id", user.id).limit(1).then(({ data }) => {
       if (data && data.length > 0) {
         const c = data[0];
         setConfigId(c.id);
@@ -63,7 +63,7 @@ export default function Publish() {
       }
     });
     // Fetch distinct categories from inventory
-    supabase.from("products").select("category").then(({ data }) => {
+    supabase.from("products").select("category").eq("user_id", user.id).then(({ data }) => {
       if (data) {
         const unique = [...new Set(data.map((p) => p.category).filter(Boolean))] as string[];
         setProductCategories(unique);
@@ -108,7 +108,7 @@ export default function Publish() {
 
     let error;
     if (configId) {
-      ({ error } = await supabase.from("publish_configs").update(payload).eq("id", configId));
+      ({ error } = await supabase.from("publish_configs").update(payload).eq("id", configId).eq("user_id", user.id));
     } else {
       const res = await supabase.from("publish_configs").insert(payload).select("id").single();
       error = res.error;

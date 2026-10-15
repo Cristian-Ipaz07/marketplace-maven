@@ -52,10 +52,12 @@ export default function Galleries() {
   }, [user]);
 
   const fetchGalleries = async () => {
+    if (!user) return;
     setLoading(true);
     const { data, error } = await supabase
       .from("shared_galleries")
       .select("id, name, description, created_at")
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false });
     if (error) toast.error("Error cargando galerías");
     else setGalleries(data || []);
@@ -82,12 +84,13 @@ export default function Galleries() {
   };
 
   const updateGallery = async () => {
-    if (!editGallery || !galleryName.trim()) { toast.error("El nombre es obligatorio"); return; }
+    if (!user || !editGallery || !galleryName.trim()) { toast.error("El nombre es obligatorio"); return; }
     setSaving(true);
     const { data, error } = await supabase
       .from("shared_galleries")
       .update({ name: galleryName.trim(), description: galleryDesc.trim() || null })
       .eq("id", editGallery.id)
+      .eq("user_id", user.id)
       .select("id, name, description, created_at")
       .single();
     setSaving(false);
@@ -111,7 +114,7 @@ export default function Galleries() {
       }).filter(Boolean) as string[];
       if (paths.length > 0) await supabase.storage.from("gallery-images").remove(paths);
     }
-    const { error } = await supabase.from("shared_galleries").delete().eq("id", gallery.id);
+    const { error } = await supabase.from("shared_galleries").delete().eq("id", gallery.id).eq("user_id", user.id);
     if (error) { toast.error("Error eliminando galería"); return; }
     setGalleries(prev => prev.filter(g => g.id !== gallery.id));
     toast.success("Galería eliminada");
@@ -183,7 +186,8 @@ export default function Galleries() {
   };
 
   const removeImage = async (img: GalleryImage) => {
-    await supabase.from("shared_gallery_images").delete().eq("id", img.id);
+    if (!user) return;
+    await supabase.from("shared_gallery_images").delete().eq("id", img.id).eq("user_id", user.id);
     const parts = img.image_url.split("/gallery-images/");
     if (parts[1]) await supabase.storage.from("gallery-images").remove([parts[1]]);
     setImages(prev => prev.filter(i => i.id !== img.id));

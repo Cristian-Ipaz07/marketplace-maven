@@ -113,13 +113,13 @@ export default function Inventory() {
   useEffect(() => {
     if (!user) return;
     const fetchProducts = async () => {
-      const { data, error } = await supabase.from("products").select("id, title, short_name, price, description, tags, category, location, condition, shared_gallery_id, title_alternatives, description_alternatives").order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("products").select("id, title, short_name, price, description, tags, category, location, condition, shared_gallery_id, title_alternatives, description_alternatives").eq("user_id", user.id).order("created_at", { ascending: false });
       if (error) { toast.error("Error cargando productos"); console.error(error); }
       else setProducts(data || []);
       setLoading(false);
     };
     const fetchGalleries = async () => {
-      const { data, error } = await supabase.from("shared_galleries").select("id, name").order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("shared_galleries").select("id, name").eq("user_id", user.id).order("created_at", { ascending: false });
       if (!error && data) setSharedGalleries(data);
     };
     fetchProducts();
@@ -213,7 +213,7 @@ export default function Inventory() {
 
     // 1.5. Limpieza de Portadas Diarias en Storage para evitar huérfanos
     try {
-      const { data: covers } = await supabase.from("daily_covers").select("image_url").eq("product_id", id);
+      const { data: covers } = await supabase.from("daily_covers").select("image_url").eq("product_id", id).eq("user_id", user.id);
       if (covers && covers.length > 0) {
         const paths = covers.map(cover => {
           const parts = cover.image_url.split("/daily-covers/");
@@ -228,7 +228,7 @@ export default function Inventory() {
     }
 
     // 2. Borrar registro (la BD borrará en cascada las filas de product_images y daily_covers por FK)
-    const { error } = await supabase.from("products").delete().eq("id", id);
+    const { error } = await supabase.from("products").delete().eq("id", id).eq("user_id", user.id);
     if (error) { toast.error("Error eliminando"); return; }
     setProducts((prev) => prev.filter((p) => p.id !== id));
     toast.success("Producto eliminado y almacenamiento liberado");
@@ -246,7 +246,7 @@ export default function Inventory() {
       description_alternatives: editForm.description_alternatives || []
     };
 
-    const { data, error } = await supabase.from("products").update(payload).eq("id", editForm.id).select("id, title, short_name, price, description, tags, category, location, condition, shared_gallery_id, title_alternatives, description_alternatives").single();
+    const { data, error } = await supabase.from("products").update(payload).eq("id", editForm.id).eq("user_id", user.id).select("id, title, short_name, price, description, tags, category, location, condition, shared_gallery_id, title_alternatives, description_alternatives").single();
     setSaving(false);
     if (error) { toast.error("Error actualizando producto"); return; }
     setProducts((prev) => prev.map((p) => p.id === editForm.id ? data : p));

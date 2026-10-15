@@ -72,9 +72,9 @@ export default function DailyCovers() {
     if (!user || loadingSub) return;
     const load = async () => {
       const [coversRes, configRes, productsRes] = await Promise.all([
-        supabase.from("daily_covers").select("*").order("position"),
-        supabase.from("publish_configs").select("quantity").limit(1),
-        supabase.from("products").select("id, title, short_name").order("created_at", { ascending: false }),
+        supabase.from("daily_covers").select("*").eq("user_id", user.id).order("position"),
+        supabase.from("publish_configs").select("quantity").eq("user_id", user.id).limit(1),
+        supabase.from("products").select("id, title, short_name").eq("user_id", user.id).order("created_at", { ascending: false }),
       ]);
       setCovers(coversRes.data || []);
       
@@ -108,7 +108,8 @@ export default function DailyCovers() {
 
 
   const removeCover = async (cover: Cover) => {
-    await supabase.from("daily_covers").delete().eq("id", cover.id);
+    if (!user) return;
+    await supabase.from("daily_covers").delete().eq("id", cover.id).eq("user_id", user.id);
     const urlParts = cover.image_url.split("/daily-covers/");
     if (urlParts[1]) await supabase.storage.from("daily-covers").remove([urlParts[1]]);
     setCovers((prev) => prev.filter((c) => c.id !== cover.id));
