@@ -1,22 +1,38 @@
 -- ============================================================
 -- MarketMaster Migration: Strict User Isolation & Admin RPC
--- Fecha: 2026-10-14
+-- Fecha: 2026-10-14 (Compatibilidad Universal de Tipos)
 -- ============================================================
 
--- 1. Asegurar rol admin para ipazcristian34@gmail.com sin depender de constraints ON CONFLICT
+-- 1. Crear función has_role con argumento TEXT para compatibilidad total de tipos
+CREATE OR REPLACE FUNCTION public.has_role(_user_id uuid, _role text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.user_roles
+    WHERE user_id = _user_id
+      AND role::text = _role
+  )
+$$;
+
+-- 2. Asegurar rol admin para ipazcristian34@gmail.com con tipos seguros
 DO $$
+DECLARE
+  v_admin_id uuid;
 BEGIN
-  INSERT INTO public.user_roles (user_id, role)
-  SELECT u.id, 'admin'::public.app_role
-  FROM auth.users u
-  WHERE u.email = 'ipazcristian34@gmail.com'
-    AND NOT EXISTS (
-      SELECT 1 FROM public.user_roles ur
-      WHERE ur.user_id = u.id AND ur.role = 'admin'
-    );
+  SELECT id INTO v_admin_id FROM auth.users WHERE email = 'ipazcristian34@gmail.com' LIMIT 1;
+  IF v_admin_id IS NOT NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = v_admin_id AND role::text = 'admin') THEN
+      INSERT INTO public.user_roles (user_id, role) VALUES (v_admin_id, 'admin');
+    END IF;
+  END IF;
 END $$;
 
--- 2. Función RPC para listar usuarios en el Panel de Administrador directamente desde auth.users
+-- 3. Función RPC para listar usuarios en el Panel de Administrador directamente desde auth.users
 CREATE OR REPLACE FUNCTION public.get_admin_users()
 RETURNS json
 LANGUAGE plpgsql
@@ -28,13 +44,11 @@ DECLARE
   caller_email text;
   is_admin boolean;
 BEGIN
-  -- Obtener email del usuario autenticado
   caller_email := auth.jwt() ->> 'email';
 
-  -- Validar si es admin
   SELECT EXISTS (
     SELECT 1 FROM public.user_roles 
-    WHERE user_id = auth.uid() AND role = 'admin'
+    WHERE user_id = auth.uid() AND role::text = 'admin'
   ) INTO is_admin;
 
   IF NOT is_admin AND caller_email != 'ipazcristian34@gmail.com' THEN
@@ -76,7 +90,7 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.get_admin_users() TO authenticated;
 
--- 3. Reforzar RLS en la tabla PROFILES para que Administradores puedan ver todos los perfiles
+-- 4. Reforzar RLS en la tabla PROFILES
 DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Admins can view all profiles" ON public.profiles;
 
@@ -85,24 +99,25 @@ CREATE POLICY "Users can view own profile"
   FOR SELECT
   USING (
     auth.uid() = user_id 
-    OR public.has_role(auth.uid(), 'admin') 
     OR (auth.jwt() ->> 'email') = 'ipazcristian34@gmail.com'
+    OR public.has_role(auth.uid(), 'admin')
   );
 
--- 4. Reforzar RLS en la tabla SUBSCRIPTIONS para que Administradores puedan ver todas las suscripciones
+-- 5. Reforzar RLS en la tabla SUBSCRIPTIONS
 DROP POLICY IF EXISTS "Admins can view all subscriptions" ON public.subscriptions;
 DROP POLICY IF EXISTS "Users can view own subscription" ON public.subscriptions;
+DROP POLICY IF EXISTS "Users and admins can view subscriptions" ON public.subscriptions;
 
 CREATE POLICY "Users and admins can view subscriptions"
   ON public.subscriptions
   FOR SELECT
   USING (
     auth.uid() = user_id 
-    OR public.has_role(auth.uid(), 'admin') 
     OR (auth.jwt() ->> 'email') = 'ipazcristian34@gmail.com'
+    OR public.has_role(auth.uid(), 'admin')
   );
 
--- 5. Reforzar RLS en la tabla PRODUCTS (AISLAMIENTO TOTAL ESTRICTO)
+-- 6. Reforzar RLS en la tabla PRODUCTS (AISLAMIENTO TOTAL)
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.products FORCE ROW LEVEL SECURITY;
 
@@ -111,24 +126,12 @@ DROP POLICY IF EXISTS "Users can insert own products" ON public.products;
 DROP POLICY IF EXISTS "Users can update own products" ON public.products;
 DROP POLICY IF EXISTS "Users can delete own products" ON public.products;
 
-CREATE POLICY "Users can view own products"
-  ON public.products FOR SELECT
-  USING (auth.uid() = user_id);
+CREATE POLICY "Users can view own products" ON public.products FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own products" ON public.products FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own products" ON public.products FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can delete own products" ON public.products FOR DELETE USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can insert own products"
-  ON public.products FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own products"
-  ON public.products FOR UPDATE
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete own products"
-  ON public.products FOR DELETE
-  USING (auth.uid() = user_id);
-
--- 6. Reforzar RLS en la tabla DAILY_COVERS
+-- 7. Reforzar RLS en la tabla DAILY_COVERS
 ALTER TABLE public.daily_covers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.daily_covers FORCE ROW LEVEL SECURITY;
 
@@ -137,71 +140,7 @@ DROP POLICY IF EXISTS "Users can insert own covers" ON public.daily_covers;
 DROP POLICY IF EXISTS "Users can update own covers" ON public.daily_covers;
 DROP POLICY IF EXISTS "Users can delete own covers" ON public.daily_covers;
 
-CREATE POLICY "Users can view own covers"
-  ON public.daily_covers FOR SELECT
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert own covers"
-  ON public.daily_covers FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own covers"
-  ON public.daily_covers FOR UPDATE
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete own covers"
-  ON public.daily_covers FOR DELETE
-  USING (auth.uid() = user_id);
-
--- 7. Reforzar RLS en SHARED_GALLERIES y SHARED_GALLERY_IMAGES
-ALTER TABLE public.shared_galleries ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.shared_galleries FORCE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Users can view own galleries" ON public.shared_galleries;
-DROP POLICY IF EXISTS "Users can insert own galleries" ON public.shared_galleries;
-DROP POLICY IF EXISTS "Users can update own galleries" ON public.shared_galleries;
-DROP POLICY IF EXISTS "Users can delete own galleries" ON public.shared_galleries;
-
-CREATE POLICY "Users can view own galleries"
-  ON public.shared_galleries FOR SELECT
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert own galleries"
-  ON public.shared_galleries FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own galleries"
-  ON public.shared_galleries FOR UPDATE
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete own galleries"
-  ON public.shared_galleries FOR DELETE
-  USING (auth.uid() = user_id);
-
--- 8. Reforzar RLS en PUBLISH_CONFIGS
-ALTER TABLE public.publish_configs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.publish_configs FORCE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Users can view own config" ON public.publish_configs;
-DROP POLICY IF EXISTS "Users can insert own config" ON public.publish_configs;
-DROP POLICY IF EXISTS "Users can update own config" ON public.publish_configs;
-DROP POLICY IF EXISTS "Users can delete own config" ON public.publish_configs;
-
-CREATE POLICY "Users can view own config"
-  ON public.publish_configs FOR SELECT
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert own config"
-  ON public.publish_configs FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own config"
-  ON public.publish_configs FOR UPDATE
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete own config"
-  ON public.publish_configs FOR DELETE
-  USING (auth.uid() = user_id);
+CREATE POLICY "Users can view own covers" ON public.daily_covers FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own covers" ON public.daily_covers FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own covers" ON public.daily_covers FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can delete own covers" ON public.daily_covers FOR DELETE USING (auth.uid() = user_id);
