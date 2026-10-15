@@ -3,14 +3,17 @@
 -- Fecha: 2026-10-14
 -- ============================================================
 
--- 1. Asegurar rol admin para ipazcristian34@gmail.com
+-- 1. Asegurar rol admin para ipazcristian34@gmail.com sin depender de constraints ON CONFLICT
 DO $$
 BEGIN
   INSERT INTO public.user_roles (user_id, role)
-  SELECT id, 'admin'::public.app_role
-  FROM auth.users
-  WHERE email = 'ipazcristian34@gmail.com'
-  ON CONFLICT (user_id, role) DO NOTHING;
+  SELECT u.id, 'admin'::public.app_role
+  FROM auth.users u
+  WHERE u.email = 'ipazcristian34@gmail.com'
+    AND NOT EXISTS (
+      SELECT 1 FROM public.user_roles ur
+      WHERE ur.user_id = u.id AND ur.role = 'admin'
+    );
 END $$;
 
 -- 2. Función RPC para listar usuarios en el Panel de Administrador directamente desde auth.users
