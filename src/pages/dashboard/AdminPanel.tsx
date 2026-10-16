@@ -259,31 +259,48 @@ export default function AdminPanel() {
     setSaving(true);
     try {
       const config = PLAN_LIMITS[editPlan] || PLAN_LIMITS.basico;
-      const updates = {
-        plan: editPlan,
-        daily_limit: config.daily_limit,
-        price: config.price,
-        is_trial: editIsTrial,
-        trial_ends_at: editTrialEnds ? new Date(editTrialEnds).toISOString() : null,
-        expires_at: editExpires ? new Date(editExpires).toISOString() : null,
-        active: true,
-        updated_at: new Date().toISOString(),
-      };
+      const trialEnds = editTrialEnds ? new Date(editTrialEnds).toISOString() : null;
+      const expires = editExpires ? new Date(editExpires).toISOString() : null;
 
-      if (editUser.subscription?.id) {
-        const { error } = await supabase
-          .from("subscriptions")
-          .update(updates)
-          .eq("id", editUser.subscription.id);
-        if (error) throw new Error(error.message);
-      } else {
-        const { error } = await supabase
-          .from("subscriptions")
-          .insert({ ...updates, user_id: editUser.id });
-        if (error) throw new Error(error.message);
+      // 1. Intentar guardar vía RPC seguro admin_save_user_subscription (evita errores RLS)
+      const { data: rpcData, error: rpcError } = await supabase.rpc("admin_save_user_subscription", {
+        p_user_id: editUser.id,
+        p_plan: editPlan,
+        p_daily_limit: config.daily_limit,
+        p_price: config.price,
+        p_is_trial: editIsTrial,
+        p_trial_ends_at: trialEnds,
+        p_expires_at: expires,
+      });
+
+      if (rpcError) {
+        console.warn("RPC admin_save_user_subscription falló, intentando fallback directo:", rpcError);
+        const updates = {
+          plan: editPlan,
+          daily_limit: config.daily_limit,
+          price: config.price,
+          is_trial: editIsTrial,
+          trial_ends_at: trialEnds,
+          expires_at: expires,
+          active: true,
+          updated_at: new Date().toISOString(),
+        };
+
+        if (editUser.subscription?.id) {
+          const { error } = await supabase
+            .from("subscriptions")
+            .update(updates)
+            .eq("id", editUser.subscription.id);
+          if (error) throw new Error(error.message);
+        } else {
+          const { error } = await supabase
+            .from("subscriptions")
+            .insert({ ...updates, user_id: editUser.id });
+          if (error) throw new Error(error.message);
+        }
       }
 
-      toast.success("Plan actualizado");
+      toast.success("Plan actualizado exitosamente");
       setEditUser(null);
       loadData();
     } catch (e: any) {
@@ -295,19 +312,30 @@ export default function AdminPanel() {
   const toggleAdmin = async (u: EnrichedUser) => {
     const isAdmin = u.roles.includes("admin");
     try {
-      if (isAdmin) {
-        const { error } = await supabase
-          .from("user_roles")
-          .delete()
-          .eq("user_id", u.id)
-          .eq("role", "admin");
-        if (error) throw new Error(error.message);
-      } else {
-        const { error } = await supabase
-          .from("user_roles")
-          .upsert({ user_id: u.id, role: "admin" }, { onConflict: "user_id,role" });
-        if (error) throw new Error(error.message);
+      // 1. Intentar vía RPC admin_toggle_role (seguro, bypass RLS)
+      const { error: rpcError } = await supabase.rpc("admin_toggle_role", {
+        p_target_user_id: u.id,
+        p_role: "admin",
+        p_assign: !isAdmin,
+      });
+
+      if (rpcError) {
+        console.warn("RPC admin_toggle_role falló, intentando fallback directo:", rpcError);
+        if (isAdmin) {
+          const { error } = await supabase
+            .from("user_roles")
+            .delete()
+            .eq("user_id", u.id)
+            .eq("role", "admin");
+          if (error) throw new Error(error.message);
+        } else {
+          const { error } = await supabase
+            .from("user_roles")
+            .insert({ user_id: u.id, role: "admin" as any });
+          if (error) throw new Error(error.message);
+        }
       }
+
       toast.success(isAdmin ? "Admin removido" : "Admin asignado");
       loadData();
     } catch (e: any) {
