@@ -539,10 +539,13 @@ export default function PublishPreview() {
 
         // --- FILTRADO DE SEGURIDAD (Multi-perfil) ---
         const msgProfileId = e.data.payload?.profile_id || e.data.payload?.profileId;
+        const selectedProfileData = profilesRef.current.find(p => p.id === selectedProfileId);
 
-        // RELAXED MATCH: Si el mensaje no trae ID, o si coincide con el seleccionado, lo dejamos pasar.
-        // Esto previene que el dashboard se quede "mudo" si la extensión olvida mandar el ID en algún paso.
-        const matches = !msgProfileId || !selectedProfileId || selectedProfileId === "none" || selectedProfileId === msgProfileId;
+        // RELAXED MATCH: Si el mensaje no trae ID, o si coincide con el seleccionado (por Supabase UUID o Chrome Hardware ID), lo dejamos pasar.
+        // Esto previene que el dashboard se quede "mudo" si la extensión usa chrome_profile_path en lugar del UUID de Supabase.
+        const matches = !msgProfileId || !selectedProfileId || selectedProfileId === "none" || 
+                        selectedProfileId === msgProfileId || 
+                        selectedProfileData?.chrome_profile_path === msgProfileId;
 
         if (!matches) {
           console.log(`[Bridge Filter] 🛡️ Mensaje de otro perfil (${msgProfileId}) ignorado en UI local.`);
@@ -673,6 +676,7 @@ export default function PublishPreview() {
           selectedCategories: publishConfig?.categories || []
         },
         profileId: chromeProfilePath,
+        supabaseProfileId: selectedProfileId,
         currentIndex: 0,
         tabId: tabSessionId
       };
