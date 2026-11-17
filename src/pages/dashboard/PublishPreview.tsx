@@ -629,24 +629,13 @@ export default function PublishPreview() {
 
     setIsAutomationRunning(true);
     setActiveIdx(itemsToPublish[0].originalIndex);
-    toast.loading("Preparando imágenes...");
 
-    console.log("[MarketMaster] Iniciando conversión de imágenes a Base64 para", itemsToPublish.length, "ítems.");
+    console.log("[MarketMaster] Despachando cola ultraligera a extensión para", itemsToPublish.length, "ítems.");
 
     try {
-      // Convertir imágenes de galería y portada a Base64 para Cero Egress en múltiples perfiles
-      const mappedItems = await Promise.all(itemsToPublish.map(async ({ item }) => {
-        // Utilizamos urlToBase64Cached que almacena en IndexedDB
-        const urlToBase64 = async (url: string) => {
-          return await urlToBase64Cached(url);
-        };
-
-        const galleryBase64 = await Promise.all(item.gallery.map(async (g) => {
-          return { image_url: await urlToBase64(g.image_url) };
-        }));
-
-        const coverBase64Url = await urlToBase64(item.cover?.image_url);
-
+      // Mapear items de forma ultraligera pasando las URLs directamente.
+      // Esto evita el error DataCloneError: out of memory en window.postMessage con campañas de 10-20+ items.
+      const mappedItems = itemsToPublish.map(({ item }) => {
         return {
           product: {
             id: item.product.id,
@@ -659,11 +648,11 @@ export default function PublishPreview() {
             tags: (item.product as any).tags ? (item.product as any).tags.split(",").map((t: string) => t.trim()).filter(Boolean) : [],
             shared_gallery_id: item.product.shared_gallery_id
           },
-          cover: { id: item.cover?.id, image_url: coverBase64Url },
-          gallery: galleryBase64,
+          cover: { id: item.cover?.id, image_url: item.cover?.image_url },
+          gallery: (item.gallery || []).map((g) => ({ image_url: g.image_url })),
           originalIndex: item.originalIndex
         };
-      }));
+      });
 
       toast.dismiss();
 
@@ -734,6 +723,25 @@ export default function PublishPreview() {
       if (!error && data) {
         setExecId(data.id);
         currentExecId = data.id;
+      } else if (error) {
+        // En caso de conflicto 409 (ejecución existente), recuperar y actualizar
+        const { data: existing }: any = await withTimeout(
+          supabase
+            .from("campaign_executions")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("profile_id", selectedProfileId)
+            .eq("day_of_week", selectedDay)
+            .order("created_at", { ascending: false })
+            .limit(1) as any,
+          5000
+        );
+        if (existing && existing.length > 0) {
+          const foundId = existing[0].id;
+          setExecId(foundId);
+          currentExecId = foundId;
+          await withTimeout(supabase.from("campaign_executions").update({ ...payload, status: "running" } as any).eq("id", foundId) as any, 5000);
+        }
       }
     }
     setExecStatus("running");
